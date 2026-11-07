@@ -15,9 +15,3 @@ export function withAll<T>(set: ReadonlySet<T>, items: Iterable<T>, on: boolean)
   }
   return next
 }
-
-/** Keeps only selected keys that still exist (e.g. after a rescan). */
-export function pruned<T>(set: ReadonlySet<T>, valid: Iterable<T>): Set<T> {
-  const v = new Set(valid)
-  return new Set([...set].filter(i => v.has(i)))
-}
