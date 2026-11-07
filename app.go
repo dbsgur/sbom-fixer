@@ -98,7 +98,7 @@ func (a *App) Scan(root string) (*ScanReport, error) {
 	}
 
 	a.progress("의존성 파일 탐색 중...")
-	res, err := sbom.Scan(root, a.progress)
+	res, err := sbom.NewScanner().Scan(root, a.progress)
 	if err != nil {
 		return nil, err
 	}

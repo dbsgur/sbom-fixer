@@ -85,7 +85,7 @@ func (fc *fixCtx) fixNpm(g []Request) []Result {
 	}
 
 	// Verify against the regenerated lock file.
-	comps, perr := sbom.ScanFile(lockPath, g[0].Manifest)
+	comps, perr := sbom.NewScanner().ParseFile(lockPath, g[0].Manifest)
 	for _, i := range applied {
 		r := g[i]
 		if perr != nil {

@@ -6,36 +6,34 @@ import (
 	"golang.org/x/mod/modfile"
 )
 
-func parseGoMod(absPath, relPath string) ([]Component, error) {
+// GoModParser reads go.mod require directives (honouring same-path replaces).
+type GoModParser struct{}
+
+func (GoModParser) Match(name string) bool { return name == "go.mod" }
+func (GoModParser) Label() string          { return "Go 모듈 분석" }
+
+func (GoModParser) Parse(absPath, relPath string) (ParseResult, error) {
 	data, err := os.ReadFile(absPath)
 	if err != nil {
-		return nil, err
+		return ParseResult{}, err
 	}
 	f, err := modfile.ParseLax(absPath, data, nil)
 	if err != nil {
-		return nil, err
+		return ParseResult{}, err
 	}
-	// Respect replace directives that pin a different version of the same module.
 	replaced := map[string]string{}
 	for _, r := range f.Replace {
 		if r.New.Version != "" && r.New.Path == r.Old.Path {
 			replaced[r.Old.Path] = r.New.Version
 		}
 	}
-	var out []Component
+	c := newCollector(EcosystemGo, relPath)
 	for _, r := range f.Require {
 		v := r.Mod.Version
 		if rv, ok := replaced[r.Mod.Path]; ok {
 			v = rv
 		}
-		out = append(out, Component{
-			Name:      r.Mod.Path,
-			Version:   v,
-			Ecosystem: EcosystemGo,
-			PURL:      makePURL(EcosystemGo, r.Mod.Path, v),
-			Manifest:  relPath,
-			Direct:    !r.Indirect,
-		})
+		c.add(r.Mod.Path, v, !r.Indirect, false)
 	}
-	return out, nil
+	return ParseResult{Components: c.out}, nil
 }

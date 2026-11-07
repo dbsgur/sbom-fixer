@@ -48,7 +48,7 @@ func (fc *fixCtx) fixGo(g []Request) []Result {
 		return results
 	}
 
-	comps, perr := sbom.ScanFile(modPath, g[0].Manifest)
+	comps, perr := sbom.NewScanner().ParseFile(modPath, g[0].Manifest)
 	for _, i := range ok {
 		r := g[i]
 		if perr != nil {

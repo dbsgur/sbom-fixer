@@ -8,14 +8,36 @@ import (
 	"strings"
 )
 
-type npmPackageJSON struct {
+// NpmLockParser reads package-lock.json (lockfileVersion 1, 2 and 3).
+type NpmLockParser struct{}
+
+func (NpmLockParser) Match(name string) bool { return name == "package-lock.json" }
+func (NpmLockParser) Label() string          { return "npm 의존성 분석" }
+
+// NpmManifestCheck warns about package.json files without a lock file,
+// because exact versions cannot be known without one.
+type NpmManifestCheck struct{}
+
+func (NpmManifestCheck) Match(name string) bool { return name == "package.json" }
+func (NpmManifestCheck) Label() string          { return "" }
+
+func (NpmManifestCheck) Parse(absPath, relPath string) (ParseResult, error) {
+	if _, err := os.Stat(filepath.Join(filepath.Dir(absPath), "package-lock.json")); err == nil {
+		return ParseResult{}, nil
+	}
+	return ParseResult{Warnings: []string{
+		relPath + ": package-lock.json이 없어 npm 의존성을 분석하지 못했습니다 (npm install 후 다시 스캔하세요. yarn/pnpm은 아직 지원하지 않습니다)",
+	}}, nil
+}
+
+type npmDeclared struct {
 	Dependencies         map[string]string `json:"dependencies"`
 	DevDependencies      map[string]string `json:"devDependencies"`
 	OptionalDependencies map[string]string `json:"optionalDependencies"`
 	PeerDependencies     map[string]string `json:"peerDependencies"`
 }
 
-func (p npmPackageJSON) directNames() map[string]bool {
+func (p npmDeclared) names() map[string]bool {
 	out := map[string]bool{}
 	for _, m := range []map[string]string{p.Dependencies, p.DevDependencies, p.OptionalDependencies, p.PeerDependencies} {
 		for k := range m {
@@ -26,14 +48,10 @@ func (p npmPackageJSON) directNames() map[string]bool {
 }
 
 type npmLockPackage struct {
+	npmDeclared
 	Version string `json:"version"`
 	Dev     bool   `json:"dev"`
 	Link    bool   `json:"link"`
-	// Root entry ("") carries the project's own dependency declarations.
-	Dependencies         map[string]string `json:"dependencies"`
-	DevDependencies      map[string]string `json:"devDependencies"`
-	OptionalDependencies map[string]string `json:"optionalDependencies"`
-	PeerDependencies     map[string]string `json:"peerDependencies"`
 }
 
 type npmLockV1Dep struct {
@@ -43,79 +61,62 @@ type npmLockV1Dep struct {
 }
 
 type npmLock struct {
-	LockfileVersion int                       `json:"lockfileVersion"`
-	Packages        map[string]npmLockPackage `json:"packages"`
-	Dependencies    map[string]npmLockV1Dep   `json:"dependencies"`
+	Packages     map[string]npmLockPackage `json:"packages"`
+	Dependencies map[string]npmLockV1Dep   `json:"dependencies"`
 }
 
-// parseNpmLock reads a package-lock.json (v1, v2 or v3).
-func parseNpmLock(absPath, relPath string) ([]Component, error) {
+func (NpmLockParser) Parse(absPath, relPath string) (ParseResult, error) {
 	data, err := os.ReadFile(absPath)
 	if err != nil {
-		return nil, err
+		return ParseResult{}, err
 	}
 	var lock npmLock
 	if err := json.Unmarshal(data, &lock); err != nil {
-		return nil, fmt.Errorf("%s: %w", relPath, err)
+		return ParseResult{}, fmt.Errorf("%s: %w", relPath, err)
 	}
 
 	direct := map[string]bool{}
 	if pj, err := os.ReadFile(filepath.Join(filepath.Dir(absPath), "package.json")); err == nil {
-		var p npmPackageJSON
+		var p npmDeclared
 		if json.Unmarshal(pj, &p) == nil {
-			direct = p.directNames()
+			direct = p.names()
 		}
 	}
 
-	seen := map[string]bool{}
-	var out []Component
-	add := func(name, version string, dev, isDirect bool) {
-		if name == "" || version == "" {
-			return
-		}
-		k := name + "@" + version
-		if seen[k] {
-			return
-		}
-		seen[k] = true
-		out = append(out, Component{
-			Name:      name,
-			Version:   version,
-			Ecosystem: EcosystemNpm,
-			PURL:      makePURL(EcosystemNpm, name, version),
-			Manifest:  relPath,
-			Direct:    isDirect,
-			Dev:       dev,
-		})
-	}
-
+	c := newCollector(EcosystemNpm, relPath)
 	if len(lock.Packages) > 0 {
 		if root, ok := lock.Packages[""]; ok && len(direct) == 0 {
-			direct = npmPackageJSON{root.Dependencies, root.DevDependencies, root.OptionalDependencies, root.PeerDependencies}.directNames()
+			direct = root.names()
 		}
 		for key, p := range lock.Packages {
 			if key == "" || p.Link {
 				continue
 			}
-			idx := strings.LastIndex(key, "node_modules/")
-			if idx < 0 {
+			name, ok := npmNameFromPath(key)
+			if !ok {
 				continue // workspace package itself
 			}
-			name := key[idx+len("node_modules/"):]
-			isDirect := key == "node_modules/"+name && direct[name]
-			add(name, p.Version, p.Dev, isDirect)
+			c.add(name, p.Version, key == "node_modules/"+name && direct[name], p.Dev)
 		}
-		return out, nil
+		return ParseResult{Components: c.out}, nil
 	}
 
-	// lockfileVersion 1
 	var walk func(deps map[string]npmLockV1Dep, top bool)
 	walk = func(deps map[string]npmLockV1Dep, top bool) {
 		for name, d := range deps {
-			add(name, d.Version, d.Dev, top && direct[name])
+			c.add(name, d.Version, top && direct[name], d.Dev)
 			walk(d.Dependencies, false)
 		}
 	}
 	walk(lock.Dependencies, true)
-	return out, nil
+	return ParseResult{Components: c.out}, nil
+}
+
+// npmNameFromPath extracts "pkg" from "node_modules/a/node_modules/pkg".
+func npmNameFromPath(key string) (string, bool) {
+	idx := strings.LastIndex(key, "node_modules/")
+	if idx < 0 {
+		return "", false
+	}
+	return key[idx+len("node_modules/"):], true
 }
