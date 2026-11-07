@@ -1,5 +1,7 @@
 # SBOM Fixer
 
+[![CI](https://github.com/dbsgur/sbom-fixer/actions/workflows/ci.yml/badge.svg)](https://github.com/dbsgur/sbom-fixer/actions/workflows/ci.yml)
+
 레포지토리(폴더)를 선택하면 **SBOM을 생성하고, 알려진 취약점이 있는 패키지를 찾아, 선택한 패키지를 안전한 버전으로 자동 수정**하는 데스크톱 앱입니다. [Wails v2](https://wails.io) (Go + React/TypeScript)로 만들었습니다.
 
 ## 기능
