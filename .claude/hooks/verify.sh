@@ -21,6 +21,8 @@ if grep -Eq '\.go$|(^|/)go\.(mod|sum)$' <<<"$changed"; then
 fi
 
 if grep -Eq 'frontend/(src/|package\.json|vite\.config)' <<<"$changed"; then
+  # Use the Node version pinned in .nvmrc when nvm is available.
+  [[ -s "$HOME/.nvm/nvm.sh" ]] && source "$HOME/.nvm/nvm.sh" && nvm use --silent >/dev/null 2>&1
   out=$(cd frontend && npx tsc --noEmit 2>&1) || fail "tsc" "$out"
   out=$(cd frontend && npx vitest run 2>&1) || fail "vitest" "$out"
 fi

@@ -12,7 +12,8 @@ Wails v2 데스크톱 앱. 레포 폴더 → SBOM 생성 → OSV.dev 취약점 �
 
 ## 환경 제약
 
-- 로컬 Node는 18 → **Vite 5 / @vitejs/plugin-react 4 / vitest 2에 고정**. Vite 6+ / vitest 3+로 올리지 말 것 (Node 20.19+ 필요)
+- Node 버전은 `.nvmrc`(24 LTS). 프론트엔드 명령 전에 `source ~/.nvm/nvm.sh && nvm use` (셸 기본 node는 18일 수 있음)
+- 프론트엔드는 Vite 5 / vitest 2 사용 중. 메이저 업그레이드는 별도 PR로
 - `frontend/wailsjs/`는 생성 파일. 직접 수정 금지 → Go 바인딩 변경 후 `~/go/bin/wails generate module`
 - 앱 실행 시 Node는 불필요 (frontend/dist가 바이너리에 임베드됨)
 

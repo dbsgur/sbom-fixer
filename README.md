@@ -44,7 +44,7 @@ frontend/src/
 
 ## 개발
 
-필요한 것: Go 1.22+, Node 18+, Wails CLI (`go install github.com/wailsapp/wails/v2/cmd/wails@latest`)
+필요한 것: Go 1.22+, Node 24 LTS (`nvm use` → `.nvmrc`), Wails CLI (`go install github.com/wailsapp/wails/v2/cmd/wails@latest`)
 
 ```bash
 make dev      # 개발 모드 (핫 리로드)
