@@ -4,7 +4,6 @@ package sbom
 
 import (
 	"fmt"
-	"net/url"
 	"strings"
 )
 
@@ -40,7 +39,7 @@ func makePURL(ecosystem, name, version string) string {
 	case EcosystemNpm:
 		if strings.HasPrefix(name, "@") {
 			if i := strings.Index(name, "/"); i > 0 {
-				return fmt.Sprintf("pkg:npm/%s/%s@%s", url.PathEscape(name[:i]), name[i+1:], version)
+				return fmt.Sprintf("pkg:npm/%s/%s@%s", "%40"+name[1:i], name[i+1:], version)
 			}
 		}
 		return fmt.Sprintf("pkg:npm/%s@%s", name, version)

@@ -17,7 +17,7 @@ func (GoModParser) Parse(absPath, relPath string) (ParseResult, error) {
 	if err != nil {
 		return ParseResult{}, err
 	}
-	f, err := modfile.ParseLax(absPath, data, nil)
+	f, err := modfile.Parse(absPath, data, nil) // Parse (not ParseLax): ParseLax drops replace directives
 	if err != nil {
 		return ParseResult{}, err
 	}
