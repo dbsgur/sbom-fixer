@@ -112,7 +112,36 @@ export namespace fixer {
 
 }
 
-export namespace main {
+export namespace sbom {
+	
+	export class Component {
+	    name: string;
+	    version: string;
+	    ecosystem: string;
+	    purl: string;
+	    manifest: string;
+	    direct: boolean;
+	    dev: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new Component(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.version = source["version"];
+	        this.ecosystem = source["ecosystem"];
+	        this.purl = source["purl"];
+	        this.manifest = source["manifest"];
+	        this.direct = source["direct"];
+	        this.dev = source["dev"];
+	    }
+	}
+
+}
+
+export namespace service {
 	
 	export class ScanReport {
 	    root: string;
@@ -195,35 +224,6 @@ export namespace main {
 		    }
 		    return a;
 		}
-	}
-
-}
-
-export namespace sbom {
-	
-	export class Component {
-	    name: string;
-	    version: string;
-	    ecosystem: string;
-	    purl: string;
-	    manifest: string;
-	    direct: boolean;
-	    dev: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new Component(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.name = source["name"];
-	        this.version = source["version"];
-	        this.ecosystem = source["ecosystem"];
-	        this.purl = source["purl"];
-	        this.manifest = source["manifest"];
-	        this.direct = source["direct"];
-	        this.dev = source["dev"];
-	    }
 	}
 
 }
