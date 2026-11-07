@@ -1,15 +1,15 @@
 import {Fragment, useMemo, useState} from 'react'
-import {Finding, findingKey, openURL, SEVERITIES, SEVERITY_LABEL, Severity} from './api'
+import {openURL} from '../api'
+import {Finding, SEVERITIES, SEVERITY_LABEL, Severity} from '../types'
+import {ecosystemsOf, filterFindings, findingKey} from '../lib/findings'
+import {toggled} from '../lib/selection'
+import SeverityBadge from './SeverityBadge'
 
 interface Props {
   findings: Finding[]
   selected: Set<string>
   onToggle: (f: Finding) => void
   onSetMany: (fs: Finding[], on: boolean) => void
-}
-
-export function SeverityBadge({s}: {s: Severity}) {
-  return <span className={`sev sev-${s.toLowerCase()}`}>{SEVERITY_LABEL[s]}</span>
 }
 
 export default function FindingsTable({findings, selected, onToggle, onSetMany}: Props) {
@@ -19,18 +19,11 @@ export default function FindingsTable({findings, selected, onToggle, onSetMany}:
   const [fixableOnly, setFixableOnly] = useState(false)
   const [open, setOpen] = useState<Set<string>>(new Set())
 
-  const ecosystems = useMemo(() => Array.from(new Set(findings.map(f => f.component.ecosystem))), [findings])
-
-  const rows = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    return findings.filter(f =>
-      (sev === 'ALL' || f.severity === sev) &&
-      (eco === 'ALL' || f.component.ecosystem === eco) &&
-      (!fixableOnly || f.fixable) &&
-      (!q || f.component.name.toLowerCase().includes(q) ||
-        f.vulns.some(v => v.id.toLowerCase().includes(q) || (v.aliases ?? []).some(a => a.toLowerCase().includes(q)))),
-    )
-  }, [findings, query, sev, eco, fixableOnly])
+  const ecosystems = useMemo(() => ecosystemsOf(findings), [findings])
+  const rows = useMemo(
+    () => filterFindings(findings, {query, severity: sev, ecosystem: eco, fixableOnly}),
+    [findings, query, sev, eco, fixableOnly],
+  )
 
   const fixableRows = rows.filter(f => f.fixable)
   const allChecked = fixableRows.length > 0 && fixableRows.every(f => selected.has(findingKey(f)))
@@ -44,12 +37,7 @@ export default function FindingsTable({findings, selected, onToggle, onSetMany}:
     )
   }
 
-  const toggleOpen = (k: string) =>
-    setOpen(prev => {
-      const n = new Set(prev)
-      n.has(k) ? n.delete(k) : n.add(k)
-      return n
-    })
+  const toggleOpen = (k: string) => setOpen(prev => toggled(prev, k))
 
   return (
     <div className="panel">

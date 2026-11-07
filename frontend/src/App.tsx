@@ -1,13 +1,13 @@
 import {useEffect, useMemo, useRef, useState} from 'react'
 import './App.css'
-import {
-  applyFixes, exportSBOM, Finding, findingKey, FixReport, FixRequest, initialPath, onFolderDrop, onProgress, openInFinder,
-  scan, ScanReport, selectFolder, SEVERITIES, SEVERITY_LABEL,
-} from './api'
-import FindingsTable from './FindingsTable'
-import ComponentsTable from './ComponentsTable'
-import FixDialog from './FixDialog'
-import ResultDialog from './ResultDialog'
+import {applyFixes, exportSBOM, initialPath, onFolderDrop, onProgress, openInFinder, scan, selectFolder} from './api'
+import {Finding, FixReport, ScanReport, SEVERITIES, SEVERITY_LABEL} from './types'
+import {countVulns, findingKey, toFixRequest} from './lib/findings'
+import {toggled, withAll} from './lib/selection'
+import FindingsTable from './components/FindingsTable'
+import ComponentsTable from './components/ComponentsTable'
+import FixDialog from './components/FixDialog'
+import ResultDialog from './components/ResultDialog'
 
 type Tab = 'findings' | 'components'
 
@@ -86,14 +86,7 @@ export default function App() {
 
   const runFix = async () => {
     if (!report) return
-    const reqs: FixRequest[] = selectedFindings.map(f => ({
-      ecosystem: f.component.ecosystem,
-      name: f.component.name,
-      currentVersion: f.component.version,
-      targetVersion: f.fixVersion,
-      manifest: f.component.manifest,
-      direct: f.component.direct,
-    }))
+    const reqs = selectedFindings.map(toFixRequest)
     setConfirming(false)
     setBusy('fix')
     setError('')
@@ -121,22 +114,8 @@ export default function App() {
     }
   }
 
-  const toggle = (f: Finding) => {
-    const k = findingKey(f)
-    setSelected(prev => {
-      const n = new Set(prev)
-      n.has(k) ? n.delete(k) : n.add(k)
-      return n
-    })
-  }
-
-  const setMany = (fs: Finding[], on: boolean) => {
-    setSelected(prev => {
-      const n = new Set(prev)
-      fs.forEach(f => (on ? n.add(findingKey(f)) : n.delete(findingKey(f))))
-      return n
-    })
-  }
+  const toggle = (f: Finding) => setSelected(prev => toggled(prev, findingKey(f)))
+  const setMany = (fs: Finding[], on: boolean) => setSelected(prev => withAll(prev, fs.map(findingKey), on))
 
   return (
     <div className="app">
@@ -268,7 +247,7 @@ export default function App() {
 }
 
 function Summary({report}: {report: ScanReport}) {
-  const vulnCount = report.findings.reduce((n, f) => n + f.vulns.length, 0)
+  const vulnCount = countVulns(report.findings)
   return (
     <section className="summary">
       <div className="stat">

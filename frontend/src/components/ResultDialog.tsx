@@ -1,4 +1,4 @@
-import {FixReport} from './api'
+import {FixReport} from '../types'
 
 export default function ResultDialog({report, onClose}: {report: FixReport; onClose: () => void}) {
   const results = report.fix.results ?? []

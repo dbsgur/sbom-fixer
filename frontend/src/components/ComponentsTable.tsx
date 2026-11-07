@@ -1,6 +1,7 @@
 import {useMemo, useState} from 'react'
-import {Component, Finding} from './api'
-import {SeverityBadge} from './FindingsTable'
+import {Component, Finding} from '../types'
+import {componentKey} from '../lib/findings'
+import SeverityBadge from './SeverityBadge'
 
 const PAGE = 300
 
@@ -10,7 +11,7 @@ export default function ComponentsTable({components, findings}: {components: Com
 
   const vulnByKey = useMemo(() => {
     const m = new Map<string, Finding>()
-    findings.forEach(f => m.set(`${f.component.manifest}|${f.component.name}@${f.component.version}`, f))
+    findings.forEach(f => m.set(componentKey(f.component), f))
     return m
   }, [findings])
 
@@ -40,9 +41,9 @@ export default function ComponentsTable({components, findings}: {components: Com
           </thead>
           <tbody>
             {rows.slice(0, limit).map(c => {
-              const f = vulnByKey.get(`${c.manifest}|${c.name}@${c.version}`)
+              const f = vulnByKey.get(componentKey(c))
               return (
-                <tr key={`${c.ecosystem}|${c.manifest}|${c.name}@${c.version}`} className="row">
+                <tr key={componentKey(c)} className="row">
                   <td className="pkg-name">{c.name}</td>
                   <td className="mono">{c.version}</td>
                   <td><span className="chip">{c.ecosystem}</span></td>

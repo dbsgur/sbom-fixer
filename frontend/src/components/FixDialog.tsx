@@ -1,20 +1,6 @@
-import {Finding} from './api'
-import {SeverityBadge} from './FindingsTable'
-
-function planText(f: Finding): string {
-  const c = f.component
-  switch (c.ecosystem) {
-    case 'npm':
-      return c.direct
-        ? 'package.json 의존성 버전 변경 → npm install --package-lock-only'
-        : 'package.json overrides 추가 → npm install --package-lock-only'
-    case 'Go':
-      return `go get ${c.name}@${f.fixVersion} → go mod tidy`
-    case 'PyPI':
-      return `${c.manifest}의 고정 버전 교체`
-  }
-  return ''
-}
+import {Finding} from '../types'
+import {findingKey, fixPlan, manifestsOf} from '../lib/findings'
+import SeverityBadge from './SeverityBadge'
 
 export default function FixDialog({findings, onCancel, onConfirm}: {
   findings: Finding[]
@@ -22,7 +8,7 @@ export default function FixDialog({findings, onCancel, onConfirm}: {
   onConfirm: () => void
 }) {
   const majors = findings.filter(f => f.majorBump)
-  const manifests = Array.from(new Set(findings.map(f => f.component.manifest)))
+  const manifests = manifestsOf(findings)
   return (
     <div className="modal-backdrop" onClick={onCancel}>
       <div className="modal" onClick={e => e.stopPropagation()}>
@@ -44,11 +30,11 @@ export default function FixDialog({findings, onCancel, onConfirm}: {
             </thead>
             <tbody>
               {findings.map(f => (
-                <tr key={`${f.component.manifest}|${f.component.name}@${f.component.version}`}>
+                <tr key={findingKey(f)}>
                   <td><SeverityBadge s={f.severity} /></td>
                   <td className="pkg-name">{f.component.name}</td>
                   <td className="mono nowrap">{f.component.version} → <b>{f.fixVersion}</b></td>
-                  <td className="muted small">{planText(f)}</td>
+                  <td className="muted small">{fixPlan(f)}</td>
                 </tr>
               ))}
             </tbody>
