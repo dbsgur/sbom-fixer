@@ -20,10 +20,10 @@ import (
 
 // App is bound to the frontend; its exported methods are callable from JS.
 type App struct {
-	ctx  context.Context
-	osv  *vuln.Client
-	mu   sync.Mutex
-	last *ScanReport
+	ctx     context.Context
+	checker *vuln.Checker
+	mu      sync.Mutex
+	last    *ScanReport
 }
 
 // ScanReport is what the UI shows after analysing a repository.
@@ -42,7 +42,7 @@ type ScanReport struct {
 }
 
 func NewApp() *App {
-	return &App{osv: vuln.NewClient()}
+	return &App{checker: vuln.NewChecker(vuln.NewOSVClient())}
 }
 
 func (a *App) startup(ctx context.Context) {
@@ -117,7 +117,7 @@ func (a *App) Scan(root string) (*ScanReport, error) {
 	if len(res.Components) == 0 {
 		rep.Warnings = append(rep.Warnings, "지원하는 의존성 파일(package-lock.json, go.mod, requirements*.txt)을 찾지 못했습니다")
 	} else {
-		findings, err := a.osv.Check(a.ctx, res.Components, a.progress)
+		findings, err := a.checker.Check(a.ctx, res.Components, a.progress)
 		if err != nil {
 			return nil, err
 		}
