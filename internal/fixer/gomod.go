@@ -12,12 +12,16 @@ import (
 	"sbomapp/internal/vuln"
 )
 
-func (fc *fixCtx) fixGo(g []Request) []Result {
-	modPath := filepath.Join(fc.root, g[0].Manifest)
+// GoFixer runs `go get module@version` followed by `go mod tidy`.
+type GoFixer struct{}
+
+func (GoFixer) Ecosystem() string { return sbom.EcosystemGo }
+
+func (GoFixer) Fix(ws *Workspace, g []Request) []Result {
+	modPath := ws.Abs(g[0].Manifest)
 	dir := filepath.Dir(modPath)
-	relDir, _ := filepath.Rel(fc.root, dir)
-	fc.progress("Go 모듈 수정 중: " + relDir)
-	bk := takeBackup(modPath, filepath.Join(dir, "go.sum"))
+	ws.Progress("Go 모듈 수정 중: " + ws.Rel(dir))
+	bk := ws.TakeBackup(modPath, filepath.Join(dir, "go.sum"))
 	goBefore := goDirective(bk[modPath])
 	env := []string{"GOFLAGS=-mod=mod"}
 
@@ -25,11 +29,8 @@ func (fc *fixCtx) fixGo(g []Request) []Result {
 	var ok []int
 	for i, r := range g {
 		results[i].Request = r
-		target := r.TargetVersion
-		if !strings.HasPrefix(target, "v") {
-			target = "v" + target
-		}
-		if _, err := fc.run(dir, env, "go", "get", r.Name+"@"+target); err != nil {
+		target := goVersion(r.TargetVersion)
+		if _, err := ws.Run(dir, env, "go", "get", r.Name+"@"+target); err != nil {
 			results[i].Message = "go get 실패 (명령 로그 참고)"
 			continue
 		}
@@ -37,47 +38,53 @@ func (fc *fixCtx) fixGo(g []Request) []Result {
 		ok = append(ok, i)
 	}
 	if len(ok) == 0 {
-		bk.restore()
+		bk.Restore()
 		return results
 	}
-	if _, err := fc.run(dir, env, "go", "mod", "tidy"); err != nil {
-		bk.restore()
+	if _, err := ws.Run(dir, env, "go", "mod", "tidy"); err != nil {
+		bk.Restore()
 		for _, i := range ok {
 			results[i].Message = "go mod tidy 실패로 변경을 되돌렸습니다 (명령 로그 참고)"
 		}
 		return results
 	}
 
-	comps, perr := sbom.NewScanner().ParseFile(modPath, g[0].Manifest)
+	mod, verr := sbom.GoModParser{}.Parse(modPath, g[0].Manifest)
 	for _, i := range ok {
-		r := g[i]
-		if perr != nil {
-			results[i].Message += " (go.mod 검증 실패: " + perr.Error() + ")"
+		if verr != nil {
+			results[i].Message += " (go.mod 검증 실패: " + verr.Error() + ")"
 			continue
 		}
-		found := false
-		for _, c := range comps {
-			if c.Name == r.Name {
-				found = true
-				if vuln.CompareVersions(c.Version, r.TargetVersion) < 0 {
-					results[i].Message += fmt.Sprintf(" — 하지만 go.mod에는 여전히 %s 입니다", c.Version)
-				} else {
-					results[i].Success = true
-				}
-			}
-		}
-		if !found { // removed by tidy => no longer a dependency
-			results[i].Success = true
-			results[i].Message += " (go mod tidy 후 더 이상 사용되지 않아 제거됨)"
-		}
+		results[i].Success, results[i].Message = verifyGoModule(mod.Components, g[i], results[i].Message)
 	}
 	if now, err := os.ReadFile(modPath); err == nil {
-		if goAfter := goDirective(now); goAfter != goBefore && len(ok) > 0 {
+		if goAfter := goDirective(now); goAfter != goBefore {
 			results[ok[0]].Message += fmt.Sprintf(" ※ 새 버전이 요구하여 go.mod의 go 버전이 %s → %s 로 올라갔습니다", goBefore, goAfter)
 		}
 	}
-	fc.recordChanged(bk)
+	ws.RecordChanged(bk)
 	return results
+}
+
+func goVersion(v string) string {
+	if strings.HasPrefix(v, "v") {
+		return v
+	}
+	return "v" + v
+}
+
+// verifyGoModule checks go.mod now requires at least the target version.
+func verifyGoModule(comps []sbom.Component, r Request, msg string) (bool, string) {
+	for _, c := range comps {
+		if c.Name != r.Name {
+			continue
+		}
+		if vuln.CompareVersions(c.Version, r.TargetVersion) < 0 {
+			return false, msg + fmt.Sprintf(" — 하지만 go.mod에는 여전히 %s 입니다", c.Version)
+		}
+		return true, msg
+	}
+	return true, msg + " (go mod tidy 후 더 이상 사용되지 않아 제거됨)"
 }
 
 func goDirective(data []byte) string {

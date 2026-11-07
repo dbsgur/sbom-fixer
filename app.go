@@ -15,6 +15,7 @@ import (
 
 	"sbomapp/internal/fixer"
 	"sbomapp/internal/sbom"
+	"sbomapp/internal/shellenv"
 	"sbomapp/internal/vuln"
 )
 
@@ -22,6 +23,7 @@ import (
 type App struct {
 	ctx     context.Context
 	checker *vuln.Checker
+	fixer   *fixer.Service
 	mu      sync.Mutex
 	last    *ScanReport
 }
@@ -42,11 +44,12 @@ type ScanReport struct {
 }
 
 func NewApp() *App {
-	return &App{checker: vuln.NewChecker(vuln.NewOSVClient())}
+	return &App{checker: vuln.NewChecker(vuln.NewOSVClient()), fixer: fixer.DefaultService()}
 }
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	go shellenv.EnsureLoginPath() // so npm/go are found when launched from Finder
 }
 
 func (a *App) progress(msg string) {
@@ -152,10 +155,8 @@ func (a *App) ApplyFixes(root string, reqs []fixer.Request) (*FixReport, error) 
 	if err != nil {
 		return nil, err
 	}
-	fr, err := fixer.Apply(a.ctx, root, reqs, a.progress)
-	if err != nil {
-		return nil, err
-	}
+	shellenv.EnsureLoginPath() // waits if the startup lookup is still running
+	fr := a.fixer.Apply(a.ctx, root, reqs, a.progress)
 	a.progress("수정 후 다시 분석 중...")
 	rescan, err := a.Scan(root)
 	if err != nil {
