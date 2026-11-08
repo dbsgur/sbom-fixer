@@ -6,17 +6,20 @@
 
 ## 기능
 
-- **SBOM 생성**: `package-lock.json`(npm, v1~v3), `go.mod`, `requirements*.txt`를 재귀적으로 탐색합니다 (`node_modules`, `vendor`, 숨김 폴더 제외)
+- **SBOM 생성**: `package-lock.json`(v1~v3), `yarn.lock`(classic·berry), `pnpm-lock.yaml`(v5·v6·v9), `go.mod`, `requirements*.txt`를 재귀적으로 탐색합니다 (`node_modules`, `vendor`, 숨김 폴더 제외)
 - **취약점 분석**: [OSV.dev](https://osv.dev) API로 조회합니다. 심각도(GHSA 등급, 없으면 CVSS v3로 계산), 직접/간접 의존성, 권장 수정 버전을 보여 줍니다
   - 권장 수정 버전 자체가 다른 취약점에 걸려 있으면 다시 조회해서 버전을 올립니다
   - 메이저 버전이 바뀌거나 일부 취약점만 해결되는 경우는 경고로 표시합니다
 - **자동 수정**
   | 생태계 | 직접 의존성 | 간접 의존성 |
   |---|---|---|
-  | npm | `package.json` 버전 변경 (`^`/`~` 등 범위 형식 유지) | `overrides` 추가 |
+  | npm | `package.json` 버전 변경 (`^`/`~` 등 범위 형식 유지) → `npm install --package-lock-only` | `overrides` 추가 |
+  | yarn | 동일 → berry: `yarn install --mode=update-lockfile`, classic: `yarn install --ignore-scripts` | `resolutions` 추가 |
+  | pnpm | 동일 → `pnpm install --lockfile-only` | `pnpm.overrides` 추가 |
   | Go | `go get mod@ver` → `go mod tidy` | 동일 |
   | Python | `requirements.txt`의 고정 버전 교체 | – |
 
+  `package.json`의 `packageManager`에 고정된 버전이 있으면 corepack으로 그 버전을 그대로 씁니다. yarn/pnpm이 설치되어 있지 않아도 corepack(Node 동봉)으로 실행합니다.
   패키지 매니저가 실패하면 파일을 원래대로 복구합니다. 수정이 끝나면 결과를 검증하고 자동으로 다시 분석합니다.
 - **CycloneDX 1.5 JSON 내보내기**
 - 폴더를 창으로 드래그 앤 드롭하거나 `sbomapp <폴더>` 인자로 실행할 수 있습니다
@@ -27,9 +30,9 @@
 main.go / app.go         Wails 어댑터 (다이얼로그, 진행 이벤트) — 비즈니스 로직 없음
 internal/
   service/   분석 → 취약점 조회 → 수정 → 재분석 오케스트레이션 (인터페이스에만 의존)
-  sbom/      Scanner + 생태계별 Parser (npm / Go / PyPI), CycloneDX
+  sbom/      Scanner + 형식별 Parser (package-lock / yarn / pnpm / go.mod / requirements), CycloneDX
   vuln/      Checker(분석 로직) ← AdvisoryDB 인터페이스 → OSVClient(HTTP)
-  fixer/     Service + 생태계별 Fixer, Runner(외부 명령), Workspace(백업/로그)
+  fixer/     Service + 생태계별 Fixer(npm·yarn·pnpm은 jsPackageManager로 분기), Runner, Workspace
   gitutil/   git 상태 조회
   shellenv/  Finder로 실행했을 때 npm/go를 찾을 수 있도록 PATH 보정
 frontend/src/

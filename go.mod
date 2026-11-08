@@ -5,6 +5,7 @@ go 1.26.0
 require (
 	github.com/wailsapp/wails/v2 v2.17.1
 	golang.org/x/mod v0.42.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (

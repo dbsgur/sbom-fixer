@@ -3,6 +3,7 @@ package fixer
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -10,17 +11,33 @@ import (
 	"sbomapp/internal/vuln"
 )
 
-// NpmFixer edits package.json (direct deps or overrides) and regenerates
-// package-lock.json with `npm install --package-lock-only`.
-type NpmFixer struct{}
+// NpmFixer upgrades packages of the "npm" ecosystem for every supported
+// JavaScript package manager (npm, yarn, pnpm — chosen by the lock file):
+// it edits package.json (direct range or override) and regenerates the lock.
+type NpmFixer struct {
+	// LookPath reports whether an executable is on PATH (nil = exec.LookPath).
+	LookPath func(string) bool
+}
 
 func (NpmFixer) Ecosystem() string { return sbom.EcosystemNpm }
 
-func (NpmFixer) Fix(ws *Workspace, g []Request) []Result {
+func (f NpmFixer) has(name string) bool {
+	if f.LookPath != nil {
+		return f.LookPath(name)
+	}
+	_, err := exec.LookPath(name)
+	return err == nil
+}
+
+func (f NpmFixer) Fix(ws *Workspace, g []Request) []Result {
 	lockPath := ws.Abs(g[0].Manifest)
+	pm, ok := jsManagerFor(filepath.Base(lockPath))
+	if !ok {
+		return failAll(g, "지원하지 않는 lock 파일입니다: "+g[0].Manifest)
+	}
 	dir := filepath.Dir(lockPath)
 	pkgPath := filepath.Join(dir, "package.json")
-	ws.Progress("npm 패키지 수정 중: " + ws.Rel(dir))
+	ws.Progress(pm.name + " 패키지 수정 중: " + ws.Rel(dir))
 
 	orig, err := os.ReadFile(pkgPath)
 	if err != nil {
@@ -31,12 +48,13 @@ func (NpmFixer) Fix(ws *Workspace, g []Request) []Result {
 		return failAll(g, "package.json 파싱 실패: "+err.Error())
 	}
 	bk := ws.TakeBackup(pkgPath, lockPath)
+	lockData := bk[lockPath]
 
 	results := make([]Result, len(g))
 	var applied []int
 	for i, r := range g {
 		results[i].Request = r
-		how, err := applyNpmChange(pkg, r)
+		how, err := applyNpmChange(pkg, r, pm.overridePath)
 		if err != nil {
 			results[i].Message = err.Error()
 			continue
@@ -57,15 +75,17 @@ func (NpmFixer) Fix(ws *Workspace, g []Request) []Result {
 		return failAll(g, "package.json 저장 실패: "+err.Error())
 	}
 
-	if _, err := ws.Run(dir, nil, "npm", "install", "--package-lock-only", "--ignore-scripts", "--no-audit", "--no-fund"); err != nil {
+	pmField, _ := pkg.getString("packageManager")
+	cmd := pm.command(jsEnv{lock: lockData, packageManager: pmField, has: f.has})
+	if _, err := ws.Run(dir, cmd.env, cmd.name, cmd.args...); err != nil {
 		bk.Restore()
 		for _, i := range applied {
-			results[i].Message = "npm install 실패로 변경을 되돌렸습니다 (명령 로그 참고)"
+			results[i].Message = pm.name + " install 실패로 변경을 되돌렸습니다 (명령 로그 참고)"
 		}
 		return results
 	}
 
-	lock, verr := sbom.NpmLockParser{}.Parse(lockPath, g[0].Manifest)
+	lock, verr := pm.parser.Parse(lockPath, g[0].Manifest)
 	for _, i := range applied {
 		if verr != nil {
 			results[i].Message += " (lock 파일 검증 실패: " + verr.Error() + ")"

@@ -1,0 +1,11 @@
+{
+  "name": "web-yarn",
+  "version": "1.0.0",
+  "dependencies": {
+    "lodash": "4.17.15",
+    "mkdirp": "0.5.1"
+  },
+  "devDependencies": {
+    "@babel/code-frame": "7.0.0"
+  }
+}

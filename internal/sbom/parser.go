@@ -23,6 +23,8 @@ type Parser interface {
 func DefaultParsers() []Parser {
 	return []Parser{
 		NpmLockParser{},
+		YarnLockParser{},
+		PnpmLockParser{},
 		NpmManifestCheck{},
 		GoModParser{},
 		RequirementsParser{},

@@ -21,12 +21,18 @@ type NpmManifestCheck struct{}
 func (NpmManifestCheck) Match(name string) bool { return name == "package.json" }
 func (NpmManifestCheck) Label() string          { return "" }
 
+// JSLockFiles are the lock files of the supported JavaScript package managers.
+var JSLockFiles = []string{"package-lock.json", "yarn.lock", "pnpm-lock.yaml"}
+
 func (NpmManifestCheck) Parse(absPath, relPath string) (ParseResult, error) {
-	if _, err := os.Stat(filepath.Join(filepath.Dir(absPath), "package-lock.json")); err == nil {
-		return ParseResult{}, nil
+	dir := filepath.Dir(absPath)
+	for _, lock := range JSLockFiles {
+		if _, err := os.Stat(filepath.Join(dir, lock)); err == nil {
+			return ParseResult{}, nil
+		}
 	}
 	return ParseResult{Warnings: []string{
-		relPath + ": package-lock.json이 없어 npm 의존성을 분석하지 못했습니다 (npm install 후 다시 스캔하세요. yarn/pnpm은 아직 지원하지 않습니다)",
+		relPath + ": lock 파일(package-lock.json, yarn.lock, pnpm-lock.yaml)이 없어 의존성 버전을 알 수 없습니다. 패키지 매니저로 install 후 다시 분석하세요",
 	}}, nil
 }
 
@@ -35,6 +41,32 @@ type npmDeclared struct {
 	DevDependencies      map[string]string `json:"devDependencies"`
 	OptionalDependencies map[string]string `json:"optionalDependencies"`
 	PeerDependencies     map[string]string `json:"peerDependencies"`
+}
+
+// declaredDeps is what a package.json says about its own dependencies.
+type declaredDeps struct {
+	direct map[string]bool // declared in any dependency section
+	dev    map[string]bool // declared only in devDependencies
+}
+
+// readNpmDeclared reads the package.json next to a lock file.
+func readNpmDeclared(lockPath string) declaredDeps {
+	d := declaredDeps{direct: map[string]bool{}, dev: map[string]bool{}}
+	data, err := os.ReadFile(filepath.Join(filepath.Dir(lockPath), "package.json"))
+	if err != nil {
+		return d
+	}
+	var p npmDeclared
+	if json.Unmarshal(data, &p) != nil {
+		return d
+	}
+	d.direct = p.names()
+	for name := range p.DevDependencies {
+		if _, prod := p.Dependencies[name]; !prod {
+			d.dev[name] = true
+		}
+	}
+	return d
 }
 
 func (p npmDeclared) names() map[string]bool {
@@ -75,13 +107,7 @@ func (NpmLockParser) Parse(absPath, relPath string) (ParseResult, error) {
 		return ParseResult{}, fmt.Errorf("%s: %w", relPath, err)
 	}
 
-	direct := map[string]bool{}
-	if pj, err := os.ReadFile(filepath.Join(filepath.Dir(absPath), "package.json")); err == nil {
-		var p npmDeclared
-		if json.Unmarshal(pj, &p) == nil {
-			direct = p.names()
-		}
-	}
+	direct := readNpmDeclared(absPath).direct
 
 	c := newCollector(EcosystemNpm, relPath)
 	if len(lock.Packages) > 0 {
