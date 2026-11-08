@@ -1,7 +1,7 @@
 import {useEffect, useMemo, useRef, useState} from 'react'
 import './App.css'
-import {applyFixes, exportSBOM, initialPath, onFolderDrop, onProgress, openInFinder, scan, selectFolder} from './api'
-import {Finding, FixReport, ScanReport, SEVERITIES, SEVERITY_LABEL} from './types'
+import {applyFixes, exportFormats, exportReport, initialPath, onFolderDrop, onProgress, openInFinder, scan, selectFolder} from './api'
+import {ExportFormat, Finding, FixReport, ScanReport, SEVERITIES, SEVERITY_LABEL} from './types'
 import {countVulns, findingKey, toFixRequest} from './lib/findings'
 import {toggled, withAll} from './lib/selection'
 import FindingsTable from './components/FindingsTable'
@@ -105,10 +105,15 @@ export default function App() {
     }
   }
 
-  const doExport = async () => {
+  const [formats, setFormats] = useState<ExportFormat[]>([])
+  useEffect(() => {
+    exportFormats().then(setFormats).catch(e => setError(String(e)))
+  }, [])
+
+  const doExport = async (f: ExportFormat) => {
     try {
-      const p = await exportSBOM()
-      if (p) setToast(`SBOM을 저장했습니다: ${p}`)
+      const p = await exportReport(f.id)
+      if (p) setToast(`${f.label} 저장 완료: ${p}`)
     } catch (e) {
       setError(String(e))
     }
@@ -140,7 +145,6 @@ export default function App() {
             <>
               <button onClick={() => runScan(root)} disabled={!!busy}>다시 분석</button>
               <button onClick={() => openInFinder(root)} className="ghost">Finder에서 열기</button>
-              <button onClick={doExport} disabled={!report || !!busy} className="ghost">SBOM 내보내기</button>
             </>
           )}
         </div>
@@ -209,6 +213,14 @@ export default function App() {
               <button className={tab === 'components' ? 'tab active' : 'tab'} onClick={() => setTab('components')}>
                 전체 컴포넌트 (SBOM) <span className="count">{report.components.length}</span>
               </button>
+              <div className="tab-actions">
+                <span className="muted small">내보내기</span>
+                {formats.map(f => (
+                  <button key={f.id} className="ghost small-btn" onClick={() => doExport(f)} title={f.dialogTitle}>
+                    {f.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {tab === 'findings' ? (

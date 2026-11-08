@@ -58,6 +58,8 @@
 .tab { background: none; border: none; border-bottom: 2px solid transparent; border-radius: 0; padding: 8px 12px; color: var(--muted); }
 .tab.active { color: var(--text); border-bottom-color: var(--accent); }
 .tab:hover:not(:disabled) { background: none; color: var(--text); }
+.tab-actions { margin-left: auto; display: flex; gap: 6px; align-items: center; padding-bottom: 4px; }
+.small-btn { padding: 4px 10px; font-size: 12px; }
 .count { background: var(--panel-2); border-radius: 10px; padding: 1px 7px; font-size: 11px; margin-left: 4px; }
 
 .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; display: flex; flex-direction: column; min-height: 0; }
