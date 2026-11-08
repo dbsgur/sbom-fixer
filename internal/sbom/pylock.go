@@ -12,18 +12,24 @@ import (
 // PythonLockFiles are the Python lock files with full dependency trees.
 var PythonLockFiles = []string{"poetry.lock", "uv.lock"}
 
-// readPyDeclared reads the pyproject.toml next to a lock file and returns the
-// declared dependencies (direct) and those declared only for development.
-func readPyDeclared(lockPath string) declaredDeps {
-	d := declaredDeps{direct: map[string]bool{}, dev: map[string]bool{}}
+// readPyproject parses the pyproject.toml next to a lock file (nil if
+// missing or invalid).
+func readPyproject(lockPath string) []PyRequirement {
 	data, err := os.ReadFile(filepath.Join(filepath.Dir(lockPath), "pyproject.toml"))
 	if err != nil {
-		return d
+		return nil
 	}
 	reqs, err := ParsePyproject(data)
 	if err != nil {
-		return d
+		return nil
 	}
+	return reqs
+}
+
+// pyDeclared summarises declarations: direct = declared anywhere,
+// dev = declared only outside production sections.
+func pyDeclared(reqs []PyRequirement) declaredDeps {
+	d := declaredDeps{direct: map[string]bool{}, dev: map[string]bool{}}
 	prod := map[string]bool{}
 	for _, r := range reqs {
 		d.direct[r.Name] = true
@@ -39,6 +45,17 @@ func readPyDeclared(lockPath string) declaredDeps {
 	return d
 }
 
+// pyProdRoots are the production declarations as graph roots (with extras).
+func pyProdRoots(reqs []PyRequirement) []depEdge {
+	var roots []depEdge
+	for _, r := range reqs {
+		if r.Production() {
+			roots = append(roots, depEdge{to: r.Name, extras: extrasList(r.Extras)})
+		}
+	}
+	return roots
+}
+
 // ---------- poetry.lock ----------
 
 // PoetryLockParser reads poetry.lock (Poetry 1.x and 2.x).
@@ -52,10 +69,13 @@ type poetryLock struct {
 		Name     string   `toml:"name"`
 		Version  string   `toml:"version"`
 		Category string   `toml:"category"` // poetry <= 1.4: "main" | "dev"
-		Groups   []string `toml:"groups"`   // poetry >= 2.0
+		Groups   []string `toml:"groups"`   // poetry >= 2.0 (absent in 1.5–1.8)
 		Source   struct {
 			Type string `toml:"type"` // "directory", "file", "git", "url", "legacy"
 		} `toml:"source"`
+		// name → "constraint" or {version, optional, extras, markers}
+		Dependencies map[string]any      `toml:"dependencies"`
+		Extras       map[string][]string `toml:"extras"` // extra → ["PySocks (>=1.5.6)"]
 	} `toml:"package"`
 }
 
@@ -64,18 +84,54 @@ func (PoetryLockParser) Parse(absPath, relPath string) (ParseResult, error) {
 	if _, err := toml.DecodeFile(absPath, &lock); err != nil {
 		return ParseResult{}, fmt.Errorf("%s: %w", relPath, err)
 	}
-	decl := readPyDeclared(absPath)
+	reqs := readPyproject(absPath)
+	decl := pyDeclared(reqs)
+
+	// Poetry 1.5–1.8 record neither category nor groups: derive dev status
+	// from the dependency graph (unreachable from production → dev).
+	g := newDepGraph()
+	for _, p := range lock.Package {
+		name := NormalizePyPIName(p.Name)
+		for dep, v := range p.Dependencies {
+			e := depEdge{to: NormalizePyPIName(dep)}
+			if t, ok := v.(map[string]any); ok {
+				if opt, _ := t["optional"].(bool); opt {
+					continue // only pulled in through an extra
+				}
+				if xs, ok := t["extras"].([]any); ok {
+					for _, x := range xs {
+						if s, ok := x.(string); ok {
+							e.extras = append(e.extras, NormalizePyPIName(s))
+						}
+					}
+				}
+			}
+			g.addEdge(name, e)
+		}
+		for extra, deps := range p.Extras {
+			for _, d := range deps {
+				if r, ok := ParsePEP508(d); ok {
+					g.addExtra(name, NormalizePyPIName(extra), depEdge{to: r.Name})
+				}
+			}
+		}
+	}
+	graphDev := g.devOnly(pyProdRoots(reqs))
+
 	c := newCollector(EcosystemPyPI, relPath)
 	for _, p := range lock.Package {
 		if p.Source.Type == "directory" || p.Source.Type == "file" {
 			continue // local path dependency, not a PyPI release
 		}
 		name := NormalizePyPIName(p.Name)
-		dev := decl.dev[name]
-		if p.Category != "" {
+		var dev bool
+		switch {
+		case p.Category != "":
 			dev = p.Category == "dev"
-		} else if len(p.Groups) > 0 {
+		case len(p.Groups) > 0:
 			dev = !slices.Contains(p.Groups, "main")
+		default:
+			dev = graphDev(name) || decl.dev[name]
 		}
 		c.add(name, p.Version, decl.direct[name], dev)
 	}
@@ -93,7 +149,16 @@ func (UvLockParser) Match(name string) bool { return name == "uv.lock" }
 func (UvLockParser) Label() string          { return "uv 의존성 분석" }
 
 type uvDep struct {
-	Name string `toml:"name"`
+	Name  string   `toml:"name"`
+	Extra []string `toml:"extra"` // extras enabled on this dependency
+}
+
+func (d uvDep) edge() depEdge {
+	e := depEdge{to: NormalizePyPIName(d.Name)}
+	for _, x := range d.Extra {
+		e.extras = append(e.extras, NormalizePyPIName(x))
+	}
+	return e
 }
 
 type uvLock struct {
@@ -129,43 +194,44 @@ func (UvLockParser) Parse(absPath, relPath string) (ParseResult, error) {
 	if _, err := toml.DecodeFile(absPath, &lock); err != nil {
 		return ParseResult{}, fmt.Errorf("%s: %w", relPath, err)
 	}
-	// Direct dependencies come from the project (workspace member) entries;
-	// dev-only status follows the dependency graph: a package is dev when it
-	// is reachable from dev dependencies but not from production ones.
-	graph := map[string][]string{}
-	var prodRoots, devRoots []string
+	// Direct dependencies come from the project (workspace member) entries.
+	// Dev status follows the dependency graph: anything not reachable from
+	// the projects' production dependencies is dev-only. Optional
+	// dependencies of a package count only where an edge enables the extra.
+	g := newDepGraph()
+	direct := map[string]bool{}
+	var prodRoots []depEdge
 	for _, p := range lock.Package {
 		name := NormalizePyPIName(p.Name)
 		for _, d := range p.Dependencies {
-			graph[name] = append(graph[name], NormalizePyPIName(d.Name))
+			g.addEdge(name, d.edge())
 		}
-		for _, deps := range p.OptionalDependencies {
+		for extra, deps := range p.OptionalDependencies {
 			for _, d := range deps {
-				graph[name] = append(graph[name], NormalizePyPIName(d.Name))
+				g.addExtra(name, NormalizePyPIName(extra), d.edge())
 			}
 		}
 		if !uvProjectSource(p.Source) {
 			continue
 		}
+		// The project's own dependencies and extras are production roots.
 		for _, d := range p.Dependencies {
-			prodRoots = append(prodRoots, NormalizePyPIName(d.Name))
+			prodRoots = append(prodRoots, d.edge())
+			direct[d.edge().to] = true
 		}
 		for _, deps := range p.OptionalDependencies {
 			for _, d := range deps {
-				prodRoots = append(prodRoots, NormalizePyPIName(d.Name))
+				prodRoots = append(prodRoots, d.edge())
+				direct[d.edge().to] = true
 			}
 		}
 		for _, deps := range p.DevDependencies {
 			for _, d := range deps {
-				devRoots = append(devRoots, NormalizePyPIName(d.Name))
+				direct[d.edge().to] = true
 			}
 		}
 	}
-	direct := map[string]bool{}
-	for _, n := range append(append([]string{}, prodRoots...), devRoots...) {
-		direct[n] = true
-	}
-	prodReach, devReach := reachable(graph, prodRoots), reachable(graph, devRoots)
+	devOnly := g.devOnly(prodRoots)
 
 	c := newCollector(EcosystemPyPI, relPath)
 	for _, p := range lock.Package {
@@ -173,7 +239,7 @@ func (UvLockParser) Parse(absPath, relPath string) (ParseResult, error) {
 			continue
 		}
 		name := NormalizePyPIName(p.Name)
-		c.add(name, p.Version, direct[name], devReach[name] && !prodReach[name])
+		c.add(name, p.Version, direct[name], devOnly(name))
 	}
 	return ParseResult{Components: c.out}, nil
 }
@@ -194,7 +260,7 @@ func (PyprojectCheck) Parse(absPath, relPath string) (ParseResult, error) {
 			return ParseResult{}, nil
 		}
 	}
-	if len(readPyDeclared(absPath).direct) == 0 {
+	if len(readPyproject(absPath)) == 0 {
 		return ParseResult{}, nil // tool config only (black, ruff, ...)
 	}
 	matches, _ := filepath.Glob(filepath.Join(dir, "requirements*.txt"))
@@ -204,20 +270,4 @@ func (PyprojectCheck) Parse(absPath, relPath string) (ParseResult, error) {
 	return ParseResult{Warnings: []string{
 		relPath + ": lock 파일(poetry.lock, uv.lock)이 없어 Python 의존성 버전을 알 수 없습니다. poetry lock 또는 uv lock 후 다시 분석하세요",
 	}}, nil
-}
-
-// reachable returns every node reachable from roots (roots included).
-func reachable(graph map[string][]string, roots []string) map[string]bool {
-	seen := map[string]bool{}
-	stack := append([]string{}, roots...)
-	for len(stack) > 0 {
-		n := stack[len(stack)-1]
-		stack = stack[:len(stack)-1]
-		if seen[n] {
-			continue
-		}
-		seen[n] = true
-		stack = append(stack, graph[n]...)
-	}
-	return seen
 }

@@ -246,7 +246,7 @@ lint = ["ruff"]
 black = "*"
 `
 	root := writeFiles(t, map[string]string{"pyproject.toml": pep621})
-	d := readPyDeclared(filepath.Join(root, "uv.lock"))
+	d := pyDeclared(readPyproject(filepath.Join(root, "uv.lock")))
 	for _, n := range []string{"requests", "flask", "sphinx", "pytest", "ruff", "black"} {
 		if !d.direct[n] {
 			t.Errorf("%s should be direct", n)
@@ -347,4 +347,122 @@ func TestPyprojectCheck(t *testing.T) {
 			t.Errorf("%s: warnings=%v want warn=%v", name, res.Warnings, tc.warn)
 		}
 	}
+}
+
+// Poetry 1.5–1.8 locks have neither category nor groups (review #6):
+// dev status must come from the dependency graph.
+const poetryLock18 = `[[package]]
+name = "requests"
+version = "2.19.0"
+optional = false
+
+[package.dependencies]
+urllib3 = ">=1.21.1,<1.24"
+PySocks = {version = ">=1.5.6", optional = true}
+
+[package.extras]
+socks = ["PySocks (>=1.5.6)"]
+
+[[package]]
+name = "pysocks"
+version = "1.7.1"
+optional = true
+
+[[package]]
+name = "urllib3"
+version = "1.23"
+optional = false
+
+[[package]]
+name = "pytest"
+version = "7.0.0"
+optional = false
+
+[package.dependencies]
+pluggy = ">=0.12,<2.0"
+urllib3 = "*"
+
+[[package]]
+name = "pluggy"
+version = "1.0.0"
+optional = false
+
+[metadata]
+lock-version = "2.0"
+`
+
+func TestPoetryLockParser_NoGroupsUsesGraph(t *testing.T) {
+	root := writeFiles(t, map[string]string{"pyproject.toml": poetryPyproject, "poetry.lock": poetryLock18})
+	res, err := PoetryLockParser{}.Parse(filepath.Join(root, "poetry.lock"), "poetry.lock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkPyComponents(t, res.Components, map[string][2]bool{
+		"requests@2.19.0": {true, false},
+		"urllib3@1.23":    {false, false}, // via requests (prod) and pytest (dev) → prod
+		"pytest@7.0.0":    {true, true},
+		"pluggy@1.0.0":    {false, true}, // only via pytest
+		"pysocks@1.7.1":   {false, true}, // only via an extra nobody enables → not production
+	})
+}
+
+// uv: optional dependencies of a package count only when a dependent
+// enables that extra (review #7).
+const uvLockExtras = `version = 1
+
+[[package]]
+name = "app"
+version = "0.1.0"
+source = { virtual = "." }
+dependencies = [{ name = "httpx" }, { name = "requests", extra = ["socks"] }]
+
+[package.dev-dependencies]
+dev = [{ name = "pytest" }]
+
+[[package]]
+name = "httpx"
+version = "0.27.0"
+source = { registry = "https://pypi.org/simple" }
+
+[package.optional-dependencies]
+http2 = [{ name = "h2" }]
+
+[[package]]
+name = "h2"
+version = "4.1.0"
+source = { registry = "https://pypi.org/simple" }
+
+[[package]]
+name = "requests"
+version = "2.32.0"
+source = { registry = "https://pypi.org/simple" }
+
+[package.optional-dependencies]
+socks = [{ name = "pysocks" }]
+
+[[package]]
+name = "pysocks"
+version = "1.7.1"
+source = { registry = "https://pypi.org/simple" }
+
+[[package]]
+name = "pytest"
+version = "8.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [{ name = "httpx", extra = ["http2"] }]
+`
+
+func TestUvLockParser_ExtrasOnlyWhenEnabled(t *testing.T) {
+	root := writeFiles(t, map[string]string{"uv.lock": uvLockExtras})
+	res, err := UvLockParser{}.Parse(filepath.Join(root, "uv.lock"), "uv.lock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkPyComponents(t, res.Components, map[string][2]bool{
+		"httpx@0.27.0":    {true, false},
+		"requests@2.32.0": {true, false},
+		"pysocks@1.7.1":   {false, false}, // requests[socks] enabled by the project
+		"h2@4.1.0":        {false, true},  // httpx[http2] enabled only by pytest (dev)
+		"pytest@8.0.0":    {true, true},
+	})
 }
