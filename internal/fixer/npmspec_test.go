@@ -50,7 +50,7 @@ func render(t *testing.T, o *orderedObject) string {
 
 func TestApplyNpmChange_Direct(t *testing.T) {
 	pkg := mustParse(t, `{"name":"x","devDependencies":{"jest":"^29.0.0","lodash":"~4.17.15"}}`)
-	msg, err := applyNpmChange(pkg, Request{Name: "lodash", TargetVersion: "4.17.21", Direct: true})
+	msg, err := applyNpmChange(pkg, Request{Name: "lodash", TargetVersion: "4.17.21", Direct: true}, []string{"overrides"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestApplyNpmChange_Direct(t *testing.T) {
 
 func TestApplyNpmChange_TransitiveAddsOverride(t *testing.T) {
 	pkg := mustParse(t, `{"dependencies":{"mkdirp":"0.5.1"}}`)
-	if _, err := applyNpmChange(pkg, Request{Name: "minimist", TargetVersion: "0.2.4"}); err != nil {
+	if _, err := applyNpmChange(pkg, Request{Name: "minimist", TargetVersion: "0.2.4"}, []string{"overrides"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := render(t, pkg); got != `{"dependencies":{"mkdirp":"0.5.1"},"overrides":{"minimist":"0.2.4"}}` {
@@ -74,7 +74,7 @@ func TestApplyNpmChange_TransitiveAddsOverride(t *testing.T) {
 
 func TestApplyNpmChange_DirectButNotDeclaredFallsBackToOverride(t *testing.T) {
 	pkg := mustParse(t, `{"peerDependencies":{"react":"^18"}}`)
-	if _, err := applyNpmChange(pkg, Request{Name: "react", TargetVersion: "18.3.1", Direct: true}); err != nil {
+	if _, err := applyNpmChange(pkg, Request{Name: "react", TargetVersion: "18.3.1", Direct: true}, []string{"overrides"}); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(render(t, pkg), `"overrides":{"react":"18.3.1"}`) {
@@ -84,7 +84,7 @@ func TestApplyNpmChange_DirectButNotDeclaredFallsBackToOverride(t *testing.T) {
 
 func TestApplyNpmChange_NestedOverride(t *testing.T) {
 	pkg := mustParse(t, `{"overrides":{"foo":{"bar":"1.0.0"}}}`)
-	if _, err := applyNpmChange(pkg, Request{Name: "foo", TargetVersion: "2.0.0"}); err != nil {
+	if _, err := applyNpmChange(pkg, Request{Name: "foo", TargetVersion: "2.0.0"}, []string{"overrides"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := render(t, pkg); got != `{"overrides":{"foo":{"bar":"1.0.0",".":"2.0.0"}}}` {
@@ -94,7 +94,7 @@ func TestApplyNpmChange_NestedOverride(t *testing.T) {
 
 func TestApplyNpmChange_UnsupportedSpec(t *testing.T) {
 	pkg := mustParse(t, `{"dependencies":{"x":"file:../x"}}`)
-	if _, err := applyNpmChange(pkg, Request{Name: "x", TargetVersion: "1.0.0", Direct: true}); err == nil {
+	if _, err := applyNpmChange(pkg, Request{Name: "x", TargetVersion: "1.0.0", Direct: true}, []string{"overrides"}); err == nil {
 		t.Fatal("expected error")
 	}
 }
@@ -128,5 +128,27 @@ func TestDetectIndent(t *testing.T) {
 		if got := detectIndent([]byte(in)); got != want {
 			t.Errorf("detectIndent(%q) = %q want %q", in, got, want)
 		}
+	}
+}
+
+func TestApplyNpmChange_OverridePathForYarnAndPnpm(t *testing.T) {
+	yarn := mustParse(t, `{"name":"x"}`)
+	if _, err := applyNpmChange(yarn, Request{Name: "minimist", TargetVersion: "0.2.4"}, []string{"resolutions"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := render(t, yarn); got != `{"name":"x","resolutions":{"minimist":"0.2.4"}}` {
+		t.Errorf("yarn: %s", got)
+	}
+
+	pnpm := mustParse(t, `{"pnpm":{"onlyBuiltDependencies":["esbuild"]}}`)
+	msg, err := applyNpmChange(pnpm, Request{Name: "minimist", TargetVersion: "0.2.4"}, []string{"pnpm", "overrides"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := render(t, pnpm); got != `{"pnpm":{"onlyBuiltDependencies":["esbuild"],"overrides":{"minimist":"0.2.4"}}}` {
+		t.Errorf("pnpm: %s", got)
+	}
+	if !strings.Contains(msg, "pnpm.overrides") {
+		t.Errorf("message should name the field: %s", msg)
 	}
 }

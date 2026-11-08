@@ -30,8 +30,10 @@ func newSpec(old, target string) (string, error) {
 }
 
 // applyNpmChange edits the parsed package.json for one request and returns a
-// human readable description of the change.
-func applyNpmChange(pkg *orderedObject, r Request) (string, error) {
+// human readable description of the change. Direct dependencies get their
+// range raised; anything else is forced via the object at overridePath
+// (e.g. ["overrides"] for npm, ["resolutions"] for yarn, ["pnpm","overrides"]).
+func applyNpmChange(pkg *orderedObject, r Request, overridePath []string) (string, error) {
 	if r.Direct {
 		for _, sec := range depSections {
 			deps, err := pkg.child(sec)
@@ -53,27 +55,39 @@ func applyNpmChange(pkg *orderedObject, r Request) (string, error) {
 			return fmt.Sprintf("%s의 버전을 %q → %q 로 변경", sec, old, spec), nil
 		}
 	}
-	// Transitive (or not declared directly): force the version via overrides.
-	ov, err := pkg.child("overrides")
+	// Transitive (or not declared directly): force the version.
+	err := updateAt(pkg, overridePath, func(ov *orderedObject) error {
+		raw, ok := ov.values[r.Name]
+		if !ok || !bytes.HasPrefix(bytes.TrimSpace(raw), []byte("{")) {
+			ov.setString(r.Name, r.TargetVersion)
+			return nil
+		}
+		// npm nested override object: {"pkg": {".": "1.2.3", "child": "..."}}
+		return updateAt(ov, []string{r.Name}, func(nested *orderedObject) error {
+			nested.setString(".", r.TargetVersion)
+			return nil
+		})
+	})
 	if err != nil {
-		return "", fmt.Errorf("overrides 파싱 실패: %w", err)
+		return "", fmt.Errorf("%s 수정 실패: %w", strings.Join(overridePath, "."), err)
 	}
-	if raw, ok := ov.values[r.Name]; ok && bytes.HasPrefix(bytes.TrimSpace(raw), []byte("{")) {
-		nested, err := ov.child(r.Name)
-		if err != nil {
-			return "", err
-		}
-		nested.setString(".", r.TargetVersion)
-		if err := ov.setChild(r.Name, nested); err != nil {
-			return "", err
-		}
-	} else {
-		ov.setString(r.Name, r.TargetVersion)
+	return fmt.Sprintf("간접 의존성이므로 package.json %s에 %q: %q 추가", strings.Join(overridePath, "."), r.Name, r.TargetVersion), nil
+}
+
+// updateAt applies fn to the object at path (creating missing levels) and
+// writes every level back into its parent.
+func updateAt(obj *orderedObject, path []string, fn func(*orderedObject) error) error {
+	if len(path) == 0 {
+		return fn(obj)
 	}
-	if err := pkg.setChild("overrides", ov); err != nil {
-		return "", err
+	child, err := obj.child(path[0])
+	if err != nil {
+		return err
 	}
-	return fmt.Sprintf("간접 의존성이므로 package.json overrides에 %q: %q 추가", r.Name, r.TargetVersion), nil
+	if err := updateAt(child, path[1:], fn); err != nil {
+		return err
+	}
+	return obj.setChild(path[0], child)
 }
 
 // renderPackageJSON serialises pkg using the original file's indentation and

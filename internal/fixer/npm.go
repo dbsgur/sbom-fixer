@@ -36,7 +36,7 @@ func (NpmFixer) Fix(ws *Workspace, g []Request) []Result {
 	var applied []int
 	for i, r := range g {
 		results[i].Request = r
-		how, err := applyNpmChange(pkg, r)
+		how, err := applyNpmChange(pkg, r, []string{"overrides"})
 		if err != nil {
 			results[i].Message = err.Error()
 			continue
