@@ -324,7 +324,7 @@ internal/
   service/   분석 → 취약점 조회 → 수정 → 재분석, 내보내기 형식 (인터페이스에만 의존)
   sbom/      Scanner + 형식별 Parser, CycloneDX
   vuln/      Checker(분석 로직) ← AdvisoryDB 인터페이스 → OSVClient(HTTP)
-  fixer/     Service + 생태계별 Fixer(npm·yarn·pnpm은 jsPackageManager로 분기), Runner, Workspace(백업/로그)
+  fixer/     Service + 생태계별 Fixer(npm·yarn·pnpm은 jsPackageManager, Python은 requirements/poetry/uv로 분기), Runner, Workspace
   gitutil/   git 상태 조회
   shellenv/  Finder로 실행해도 npm/go를 찾을 수 있도록 PATH 보정
 frontend/src/
