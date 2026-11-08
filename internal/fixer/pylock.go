@@ -141,7 +141,10 @@ func pyCommand(tool pyTool, decls []sbom.PyRequirement, r Request) ([]string, st
 	if err != nil {
 		return nil, "", err
 	}
-	req := decl.requirement(r.Name, r.TargetVersion)
+	req, err := decl.requirement(r.Name, r.TargetVersion)
+	if err != nil {
+		return nil, "", err
+	}
 	args := tool.addDirect(req, section)
 	where := "의존성"
 	switch decl.Kind {

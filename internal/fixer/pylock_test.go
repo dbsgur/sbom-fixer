@@ -85,21 +85,59 @@ func TestFindPyDeclSectionArgs(t *testing.T) {
 }
 
 func TestNewPySpec(t *testing.T) {
-	for old, want := range map[string]string{
-		"==2.19.0": "==2.33.0", "===1": "===2.33.0", "~=2.19": "~=2.33.0",
-		"^2.19": "^2.33.0", "~2.19": "~2.33.0", "2.19.0": "==2.33.0",
-		">=2.0": ">=2.33.0", ">=2,<3": ">=2.33.0", "*": ">=2.33.0", "": ">=2.33.0",
-	} {
-		if got := newPySpec(old, "2.33.0"); got != want {
-			t.Errorf("newPySpec(%q) = %q want %q", old, got, want)
+	ok := map[string]string{
+		// exact pins and Poetry operators keep their form
+		"==2.19.0": "==2.33.0", "===1": "===2.33.0", "2.19.0": "==2.33.0",
+		"^2.19": "^2.33.0", "~2.19": "~2.33.0",
+		// open lower bounds are raised
+		">=2.0": ">=2.33.0", ">2.0": ">=2.33.0", "*": ">=2.33.0", "": ">=2.33.0",
+		// upper bounds and exclusions survive (review #3)
+		">=2.0,<3": ">=2.33.0,<3", ">=2, <=2.40": ">=2.33.0,<=2.40", "!=2.20,>=2": ">=2.33.0,!=2.20",
+		// compatible release keeps its original range instead of narrowing it (review #4)
+		"~=2.19": ">=2.33.0,<3", "~=2.19.0": ">=2.33.0,<2.34",
+	}
+	for old, want := range ok {
+		got, err := newPySpec(old, "2.33.0")
+		if err != nil || got != want {
+			t.Errorf("newPySpec(%q) = %q, %v; want %q", old, got, err, want)
+		}
+	}
+	// ~=7.0 allows <8; target inside that range keeps the bound
+	if got, _ := newPySpec("~=7.0", "7.2.6"); got != ">=7.2.6,<8" {
+		t.Errorf("~=7.0 -> %q", got)
+	}
+	// target beyond the old compatible range: same precision, re-anchored
+	if got, _ := newPySpec("~=7.0", "8.1.2"); got != ">=8.1.2,<9" {
+		t.Errorf("~=7.0 beyond range -> %q", got)
+	}
+	bad := map[string]string{
+		">=2.0,<2.30":  "상한",
+		"<=2.20":       "상한",
+		"!=2.33.0,>=2": "제외",
+		"==2.*":        "와일드카드",
+		"@ https://x/y.whl": "URL",
+		">>2":          "해석",
+	}
+	for old, msg := range bad {
+		if _, err := newPySpec(old, "2.33.0"); err == nil || !strings.Contains(err.Error(), msg) {
+			t.Errorf("newPySpec(%q) err = %v, want containing %q", old, err, msg)
 		}
 	}
 }
 
 func TestPyDeclRequirement(t *testing.T) {
 	d := pyDecl{found: true, PyRequirement: sbom.PyRequirement{Spec: "==2.19.0", Extras: "[socks]", Marker: "; python_version > '3'"}}
-	if got := d.requirement("requests", "2.33.0"); got != "requests[socks]==2.33.0 ; python_version > '3'" {
+	if got, _ := d.requirement("requests", "2.33.0"); got != "requests[socks]==2.33.0 ; python_version > '3'" {
 		t.Errorf("got %q", got)
+	}
+	// Poetry caret/tilde use the name@constraint form every Poetry version accepts (review #1)
+	caret := pyDecl{found: true, PyRequirement: sbom.PyRequirement{Spec: "^2.10", Extras: "[i18n]"}}
+	if got, _ := caret.requirement("jinja2", "3.1.6"); got != "jinja2[i18n]@^3.1.6" {
+		t.Errorf("caret: got %q", got)
+	}
+	url := pyDecl{found: true, PyRequirement: sbom.PyRequirement{Spec: "@ https://x/y.whl", URL: true}}
+	if _, err := url.requirement("y", "1.0"); err == nil {
+		t.Error("URL requirement must not be rewritten")
 	}
 }
 
