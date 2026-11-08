@@ -137,20 +137,6 @@ func (s *Service) Fix(ctx context.Context, root string, reqs []fixer.Request, pr
 	return &FixReport{Fix: fr, Rescan: rescan}, nil
 }
 
-// CycloneDX renders a scan report as a CycloneDX JSON document.
-func CycloneDX(rep *ScanReport) ([]byte, error) {
-	var vs []sbom.CycloneDXVuln
-	for _, f := range rep.Findings {
-		for _, v := range f.Vulns {
-			vs = append(vs, sbom.CycloneDXVuln{
-				ID: v.ID, Severity: strings.ToLower(v.Severity), Summary: v.Summary,
-				BomRef: f.Component.Key(), FixedIn: v.FixedVersion,
-			})
-		}
-	}
-	return sbom.CycloneDX(filepath.Base(rep.Root), rep.Components, vs)
-}
-
 // ValidateRoot returns the absolute path of an existing directory.
 func ValidateRoot(root string) (string, error) {
 	abs, err := filepath.Abs(strings.TrimSpace(root))
