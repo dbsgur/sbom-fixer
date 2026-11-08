@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"sbomapp/internal/sbom"
 )
 
 const pep621Pyproject = `[project]
@@ -38,36 +40,47 @@ pytest = "~7.0"
 black = "*"
 `
 
-func TestFindPyDecl(t *testing.T) {
+func TestFindPyDeclSectionArgs(t *testing.T) {
 	cases := []struct {
 		name, pyproject, pkg string
-		want                 pyDecl
+		args                 []string
+		errContains          string
 	}{
-		{"pep621 extras+marker", pep621Pyproject, "requests",
-			pyDecl{found: true, spec: "==2.19.0", extras: "[socks]", marker: "; python_version > '3'"}},
-		{"pep621 normalized name", pep621Pyproject, "jinja2", pyDecl{found: true, spec: ">=2.10"}},
-		{"optional extra", pep621Pyproject, "sphinx", pyDecl{found: true, args: []string{"--optional", "docs"}, spec: "~=7.0"}},
-		{"dependency group", pep621Pyproject, "pytest", pyDecl{found: true, args: []string{"--group", "dev"}, spec: "==7.0.0"}},
-		{"bare name", pep621Pyproject, "ruff", pyDecl{found: true, args: []string{"--group", "lint"}}},
-		{"poetry main", poetryPyprojectFixer, "requests", pyDecl{found: true, spec: "2.19.0"}},
-		{"poetry table is complex", poetryPyprojectFixer, "celery", pyDecl{found: true, complex: true}},
-		{"poetry group", poetryPyprojectFixer, "pytest", pyDecl{found: true, args: []string{"--group", "dev"}, spec: "~7.0"}},
-		{"poetry legacy dev", poetryPyprojectFixer, "black", pyDecl{found: true, args: []string{"--group", "dev"}, spec: "*"}},
-		{"not declared", poetryPyprojectFixer, "urllib3", pyDecl{}},
+		{"pep621 main", pep621Pyproject, "requests", nil, ""},
+		{"optional extra", pep621Pyproject, "sphinx", []string{"--optional", "docs"}, ""},
+		{"dependency group", pep621Pyproject, "pytest", []string{"--group", "dev"}, ""},
+		{"poetry group", poetryPyprojectFixer, "pytest", []string{"--group", "dev"}, ""},
+		{"poetry legacy dev refused", poetryPyprojectFixer, "black", nil, "구버전"},
+		{"uv legacy dev", "[tool.uv]\ndev-dependencies = [\"pytest==7.0.0\"]\n", "pytest", []string{"--dev"}, ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := findPyDecl([]byte(c.pyproject), c.pkg)
+			reqs, err := sbom.ParsePyproject([]byte(c.pyproject))
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !reflect.DeepEqual(got, c.want) {
-				t.Errorf("got  %+v\nwant %+v", got, c.want)
+			d := findPyDecl(reqs, c.pkg)
+			if !d.found {
+				t.Fatal("not found")
+			}
+			args, err := d.sectionArgs()
+			if c.errContains != "" {
+				if err == nil || !strings.Contains(err.Error(), c.errContains) {
+					t.Errorf("err = %v", err)
+				}
+				return
+			}
+			if err != nil || !reflect.DeepEqual(args, c.args) {
+				t.Errorf("args = %v err = %v, want %v", args, err, c.args)
 			}
 		})
 	}
-	if _, err := findPyDecl([]byte("[project\n"), "x"); err == nil {
-		t.Error("invalid TOML should fail")
+	reqs, _ := sbom.ParsePyproject([]byte(poetryPyprojectFixer))
+	if findPyDecl(reqs, "urllib3").found {
+		t.Error("undeclared package should not be found")
+	}
+	if d := findPyDecl(reqs, "celery"); !d.Table {
+		t.Error("celery is a table declaration")
 	}
 }
 
@@ -84,7 +97,7 @@ func TestNewPySpec(t *testing.T) {
 }
 
 func TestPyDeclRequirement(t *testing.T) {
-	d := pyDecl{found: true, spec: "==2.19.0", extras: "[socks]", marker: "; python_version > '3'"}
+	d := pyDecl{found: true, PyRequirement: sbom.PyRequirement{Spec: "==2.19.0", Extras: "[socks]", Marker: "; python_version > '3'"}}
 	if got := d.requirement("requests", "2.33.0"); got != "requests[socks]==2.33.0 ; python_version > '3'" {
 		t.Errorf("got %q", got)
 	}

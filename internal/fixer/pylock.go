@@ -54,11 +54,15 @@ func fixPyLock(ws *Workspace, g []Request, tool pyTool) []Result {
 	pyprojectPath := filepath.Join(dir, "pyproject.toml")
 	ws.Progress(tool.name + " 패키지 수정 중: " + ws.Rel(dir))
 
-	pyproject, err := os.ReadFile(pyprojectPath)
-	if err != nil {
-		return failAll(g, "pyproject.toml을 읽을 수 없습니다: "+err.Error())
-	}
 	bk := ws.TakeBackup(pyprojectPath, lockPath)
+	if bk[pyprojectPath] == nil {
+		return failAll(g, "pyproject.toml을 찾을 수 없습니다")
+	}
+	// Parsed once; re-parsed only after a direct `add` rewrote the file.
+	decls, err := sbom.ParsePyproject(bk[pyprojectPath])
+	if err != nil {
+		return failAll(g, "pyproject.toml 파싱 실패: "+err.Error())
+	}
 
 	order := make([]int, len(g))
 	for i := range order {
@@ -71,7 +75,7 @@ func fixPyLock(ws *Workspace, g []Request, tool pyTool) []Result {
 	for _, i := range order {
 		r := g[i]
 		results[i].Request = r
-		args, how, err := pyCommand(tool, pyproject, r)
+		args, how, err := pyCommand(tool, decls, r)
 		if err != nil {
 			results[i].Message = err.Error()
 			continue
@@ -86,8 +90,10 @@ func fixPyLock(ws *Workspace, g []Request, tool pyTool) []Result {
 		results[i].Message = how
 		ran = append(ran, i)
 		if r.Direct { // later `add` calls must see the updated declarations
-			if updated, err := os.ReadFile(pyprojectPath); err == nil {
-				pyproject = updated
+			if data, err := os.ReadFile(pyprojectPath); err == nil {
+				if updated, err := sbom.ParsePyproject(data); err == nil {
+					decls = updated
+				}
 			}
 		}
 	}
@@ -116,31 +122,34 @@ func fixPyLock(ws *Workspace, g []Request, tool pyTool) []Result {
 }
 
 // pyCommand builds the tool arguments for one request and a description.
-func pyCommand(tool pyTool, pyproject []byte, r Request) ([]string, string, error) {
+func pyCommand(tool pyTool, decls []sbom.PyRequirement, r Request) ([]string, string, error) {
 	if !r.Direct {
 		args := tool.upgradeTransitive(r.Name, r.TargetVersion)
 		return args, fmt.Sprintf("간접 의존성: %s %s", tool.name, strings.Join(args, " ")), nil
 	}
-	decl, err := findPyDecl(pyproject, r.Name)
-	if err != nil {
-		return nil, "", err
-	}
+	decl := findPyDecl(decls, r.Name)
 	if !decl.found {
 		// Listed as direct by the lock but not in pyproject (e.g. a workspace
 		// member's dependency): treat like a transitive upgrade.
 		args := tool.upgradeTransitive(r.Name, r.TargetVersion)
 		return args, fmt.Sprintf("%s %s", tool.name, strings.Join(args, " ")), nil
 	}
-	if decl.complex {
+	if decl.Table {
 		return nil, "", fmt.Errorf("pyproject.toml에 표 형식({version=..., markers=...})으로 선언되어 있어 자동 수정하지 않습니다. 직접 %s 이상으로 수정하세요", r.TargetVersion)
 	}
+	section, err := decl.sectionArgs()
+	if err != nil {
+		return nil, "", err
+	}
 	req := decl.requirement(r.Name, r.TargetVersion)
-	args := tool.addDirect(req, decl.args)
+	args := tool.addDirect(req, section)
 	where := "의존성"
-	if len(decl.args) == 2 {
-		where = decl.args[1] + " 그룹"
-		if decl.args[0] == "--optional" {
-			where = decl.args[1] + " extra"
+	switch decl.Kind {
+	case sbom.PyOptional:
+		where = decl.Section + " extra"
+	case sbom.PyGroup, sbom.PyPoetryGroup, sbom.PyUvLegacyDev:
+		if decl.Section != "main" {
+			where = decl.Section + " 그룹"
 		}
 	}
 	return args, fmt.Sprintf("%s 선언을 %q 로 변경 (%s %s)", where, req, tool.name, strings.Join(args, " ")), nil

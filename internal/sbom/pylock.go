@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
+	"slices"
 
 	"github.com/BurntSushi/toml"
 )
@@ -12,93 +12,28 @@ import (
 // PythonLockFiles are the Python lock files with full dependency trees.
 var PythonLockFiles = []string{"poetry.lock", "uv.lock"}
 
-// ---------- pyproject.toml (direct dependencies) ----------
-
-type pyproject struct {
-	Project struct {
-		Dependencies         []string            `toml:"dependencies"`
-		OptionalDependencies map[string][]string `toml:"optional-dependencies"`
-	} `toml:"project"`
-	DependencyGroups map[string][]any `toml:"dependency-groups"` // PEP 735 (entries may be tables)
-	Tool             struct {
-		Poetry struct {
-			Dependencies    map[string]any `toml:"dependencies"`
-			DevDependencies map[string]any `toml:"dev-dependencies"` // poetry < 1.2
-			Group           map[string]struct {
-				Dependencies map[string]any `toml:"dependencies"`
-			} `toml:"group"`
-		} `toml:"poetry"`
-	} `toml:"tool"`
-}
-
-var pep508Name = regexp.MustCompile(`^\s*([A-Za-z0-9][A-Za-z0-9._-]*)`)
-
-// requirementName extracts the distribution name from a PEP 508 string
-// such as "requests[socks]>=2.0; python_version>'3'".
-func requirementName(req string) string {
-	m := pep508Name.FindStringSubmatch(req)
-	if m == nil {
-		return ""
-	}
-	return NormalizePyPIName(m[1])
-}
-
 // readPyDeclared reads the pyproject.toml next to a lock file and returns the
 // declared dependencies (direct) and those declared only for development.
 func readPyDeclared(lockPath string) declaredDeps {
 	d := declaredDeps{direct: map[string]bool{}, dev: map[string]bool{}}
-	var p pyproject
-	if _, err := toml.DecodeFile(filepath.Join(filepath.Dir(lockPath), "pyproject.toml"), &p); err != nil {
+	data, err := os.ReadFile(filepath.Join(filepath.Dir(lockPath), "pyproject.toml"))
+	if err != nil {
 		return d
 	}
-	prod, devOnly := map[string]bool{}, map[string]bool{}
-	addProd := func(name string) {
-		if name != "" && name != "python" {
-			prod[name] = true
+	reqs, err := ParsePyproject(data)
+	if err != nil {
+		return d
+	}
+	prod := map[string]bool{}
+	for _, r := range reqs {
+		d.direct[r.Name] = true
+		if r.Production() {
+			prod[r.Name] = true
 		}
 	}
-	addDev := func(name string) {
-		if name != "" && name != "python" {
-			devOnly[name] = true
-		}
-	}
-	for _, r := range p.Project.Dependencies {
-		addProd(requirementName(r))
-	}
-	for _, reqs := range p.Project.OptionalDependencies {
-		for _, r := range reqs {
-			addProd(requirementName(r))
-		}
-	}
-	for _, reqs := range p.DependencyGroups {
-		for _, r := range reqs {
-			if s, ok := r.(string); ok { // skip {include-group = "..."}
-				addDev(requirementName(s))
-			}
-		}
-	}
-	for name := range p.Tool.Poetry.Dependencies {
-		addProd(NormalizePyPIName(name))
-	}
-	for name := range p.Tool.Poetry.DevDependencies {
-		addDev(NormalizePyPIName(name))
-	}
-	for group, g := range p.Tool.Poetry.Group {
-		for name := range g.Dependencies {
-			if group == "main" {
-				addProd(NormalizePyPIName(name))
-			} else {
-				addDev(NormalizePyPIName(name))
-			}
-		}
-	}
-	for n := range prod {
-		d.direct[n] = true
-	}
-	for n := range devOnly {
-		d.direct[n] = true
-		if !prod[n] {
-			d.dev[n] = true
+	for _, r := range reqs {
+		if !prod[r.Name] {
+			d.dev[r.Name] = true
 		}
 	}
 	return d
@@ -140,7 +75,7 @@ func (PoetryLockParser) Parse(absPath, relPath string) (ParseResult, error) {
 		if p.Category != "" {
 			dev = p.Category == "dev"
 		} else if len(p.Groups) > 0 {
-			dev = !contains(p.Groups, "main")
+			dev = !slices.Contains(p.Groups, "main")
 		}
 		c.add(name, p.Version, decl.direct[name], dev)
 	}
@@ -285,13 +220,4 @@ func reachable(graph map[string][]string, roots []string) map[string]bool {
 		stack = append(stack, graph[n]...)
 	}
 	return seen
-}
-
-func contains(xs []string, s string) bool {
-	for _, x := range xs {
-		if x == s {
-			return true
-		}
-	}
-	return false
 }

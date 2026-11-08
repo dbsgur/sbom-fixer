@@ -259,17 +259,73 @@ black = "*"
 	}
 }
 
-func TestRequirementName(t *testing.T) {
-	for in, want := range map[string]string{
-		"requests==2.19.0":                      "requests",
-		"Jinja2 >= 2.10 ; python_version > '3'": "jinja2",
-		"uvicorn[standard]>=0.20":               "uvicorn",
-		"zope.interface":                        "zope-interface",
-		"  ":                                    "",
-	} {
-		if got := requirementName(in); got != want {
-			t.Errorf("requirementName(%q) = %q want %q", in, got, want)
+func TestParsePEP508(t *testing.T) {
+	cases := map[string]PyRequirement{
+		"requests==2.19.0":                      {Name: "requests", Spec: "==2.19.0"},
+		"Jinja2 >= 2.10 ; python_version > '3'": {Name: "jinja2", Spec: ">= 2.10", Marker: "; python_version > '3'"},
+		"uvicorn[standard]>=0.20,<1":            {Name: "uvicorn", Extras: "[standard]", Spec: ">=0.20,<1"},
+		"zope.interface":                        {Name: "zope-interface"},
+		"pkg @ https://example.com/pkg-1.0.whl": {Name: "pkg", Spec: "@ https://example.com/pkg-1.0.whl", URL: true},
+	}
+	for in, want := range cases {
+		got, ok := ParsePEP508(in)
+		if !ok || got != want {
+			t.Errorf("ParsePEP508(%q) = %+v, %v; want %+v", in, got, ok, want)
 		}
+	}
+	if _, ok := ParsePEP508("  "); ok {
+		t.Error("blank should not parse")
+	}
+}
+
+func TestParsePyproject_OrderAndSections(t *testing.T) {
+	const src = `[project]
+dependencies = ["requests==2.19.0"]
+
+[project.optional-dependencies]
+docs = ["sphinx~=7.0"]
+
+[dependency-groups]
+dev = ["pytest==7.0.0", {include-group = "lint"}]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+celery = { version = "^4.0", markers = "sys_platform != 'win32'" }
+
+[tool.poetry.group.main.dependencies]
+attrs = "^23"
+
+[tool.poetry.dev-dependencies]
+black = "*"
+
+[tool.uv]
+dev-dependencies = ["ruff==0.1.0"]
+`
+	reqs, err := ParsePyproject([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, r := range reqs {
+		got = append(got, r.Name+":"+string(r.Kind))
+	}
+	want := []string{
+		"requests:project", "celery:poetry", "sphinx:optional", "attrs:poetry-group", // production first
+		"pytest:group", "black:poetry-legacy-dev", "ruff:uv-legacy-dev",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %v", got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("order:\n got %v\nwant %v", got, want)
+		}
+	}
+	if !reqs[1].Table || reqs[2].Section != "docs" {
+		t.Errorf("celery table=%v sphinx section=%q", reqs[1].Table, reqs[2].Section)
+	}
+	if _, err := ParsePyproject([]byte("[project\n")); err == nil {
+		t.Error("invalid TOML should fail")
 	}
 }
 
