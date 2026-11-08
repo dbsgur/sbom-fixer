@@ -111,12 +111,12 @@ func TestNewPySpec(t *testing.T) {
 		t.Errorf("~=7.0 beyond range -> %q", got)
 	}
 	bad := map[string]string{
-		">=2.0,<2.30":  "상한",
-		"<=2.20":       "상한",
-		"!=2.33.0,>=2": "제외",
-		"==2.*":        "와일드카드",
+		">=2.0,<2.30":       "상한",
+		"<=2.20":            "상한",
+		"!=2.33.0,>=2":      "제외",
+		"==2.*":             "와일드카드",
 		"@ https://x/y.whl": "URL",
-		">>2":          "해석",
+		">>2":               "해석",
 	}
 	for old, msg := range bad {
 		if _, err := newPySpec(old, "2.33.0"); err == nil || !strings.Contains(err.Error(), msg) {
