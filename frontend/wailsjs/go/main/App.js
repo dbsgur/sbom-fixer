@@ -6,8 +6,12 @@ export function ApplyFixes(arg1, arg2) {
   return window['go']['main']['App']['ApplyFixes'](arg1, arg2);
 }
 
-export function ExportSBOM() {
-  return window['go']['main']['App']['ExportSBOM']();
+export function Export(arg1) {
+  return window['go']['main']['App']['Export'](arg1);
+}
+
+export function ExportFormats() {
+  return window['go']['main']['App']['ExportFormats']();
 }
 
 export function InitialPath() {

@@ -143,6 +143,26 @@ export namespace sbom {
 
 export namespace service {
 	
+	export class ExportFormat {
+	    id: string;
+	    label: string;
+	    dialogTitle: string;
+	    filterName: string;
+	    suffix: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ExportFormat(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.label = source["label"];
+	        this.dialogTitle = source["dialogTitle"];
+	        this.filterName = source["filterName"];
+	        this.suffix = source["suffix"];
+	    }
+	}
 	export class ScanReport {
 	    root: string;
 	    components: sbom.Component[];

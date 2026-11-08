@@ -73,6 +73,14 @@ export interface FixReport {
   rescan: ScanReport | null
 }
 
+export interface ExportFormat {
+  id: string
+  label: string
+  dialogTitle: string
+  filterName: string
+  suffix: string
+}
+
 export const SEVERITIES: Severity[] = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'UNKNOWN']
 export const SEVERITY_LABEL: Record<Severity, string> = {
   CRITICAL: '치명',

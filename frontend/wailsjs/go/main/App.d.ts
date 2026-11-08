@@ -5,7 +5,9 @@ import {service} from '../models';
 
 export function ApplyFixes(arg1:string,arg2:Array<fixer.Request>):Promise<service.FixReport>;
 
-export function ExportSBOM():Promise<string>;
+export function Export(arg1:string):Promise<string>;
+
+export function ExportFormats():Promise<Array<service.ExportFormat>>;
 
 export function InitialPath():Promise<string>;
 

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
@@ -97,24 +98,33 @@ func (a *App) ApplyFixes(root string, reqs []fixer.Request) (*service.FixReport,
 	return fr, err
 }
 
-// ExportSBOM writes the last scan as a CycloneDX JSON file chosen by the user.
-// Returns the saved path ("" if cancelled).
-func (a *App) ExportSBOM() (string, error) {
+// ExportFormats lists the files that can be exported (for the UI buttons).
+func (a *App) ExportFormats() []service.ExportFormat {
+	return service.ExportFormats
+}
+
+// Export saves the last scan in the given format (see ExportFormats) to a
+// file chosen by the user. Returns the saved path ("" if cancelled).
+func (a *App) Export(formatID string) (string, error) {
 	a.mu.Lock()
 	rep := a.last
 	a.mu.Unlock()
 	if rep == nil {
 		return "", errors.New("먼저 분석을 실행하세요")
 	}
+	f, err := service.FindExportFormat(formatID)
+	if err != nil {
+		return "", err
+	}
 	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
-		Title:           "SBOM 저장 (CycloneDX JSON)",
-		DefaultFilename: filepath.Base(rep.Root) + ".cdx.json",
-		Filters:         []runtime.FileFilter{{DisplayName: "CycloneDX JSON", Pattern: "*.json"}},
+		Title:           f.DialogTitle,
+		DefaultFilename: f.DefaultFilename(rep),
+		Filters:         []runtime.FileFilter{{DisplayName: f.FilterName, Pattern: "*.json"}},
 	})
 	if err != nil || path == "" {
 		return "", err
 	}
-	data, err := service.CycloneDX(rep)
+	data, err := f.Render(rep, time.Now())
 	if err != nil {
 		return "", err
 	}
