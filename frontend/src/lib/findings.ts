@@ -46,14 +46,26 @@ export function toFixRequest(f: Finding): FixRequest {
   }
 }
 
+const JS_PACKAGE_MANAGERS: Record<string, {override: string; update: string}> = {
+  'package-lock.json': {override: 'overrides', update: 'npm install --package-lock-only'},
+  'yarn.lock': {override: 'resolutions', update: 'yarn install'},
+  'pnpm-lock.yaml': {override: 'pnpm.overrides', update: 'pnpm install --lockfile-only'},
+}
+
+/** How the JS package manager owning a lock file is driven (npm by default). */
+export function jsPackageManager(manifest: string) {
+  const base = manifest.slice(manifest.lastIndexOf('/') + 1)
+  return JS_PACKAGE_MANAGERS[base] ?? JS_PACKAGE_MANAGERS['package-lock.json']
+}
+
 /** Human readable description of what a fix will do. */
 export function fixPlan(f: Finding): string {
   const c = f.component
   switch (c.ecosystem) {
-    case 'npm':
-      return c.direct
-        ? 'package.json 의존성 버전 변경 → npm install --package-lock-only'
-        : 'package.json overrides 추가 → npm install --package-lock-only'
+    case 'npm': {
+      const pm = jsPackageManager(c.manifest)
+      return c.direct ? `package.json 의존성 버전 변경 → ${pm.update}` : `package.json ${pm.override} 추가 → ${pm.update}`
+    }
     case 'Go':
       return `go get ${c.name}@${f.fixVersion} → go mod tidy`
     case 'PyPI':

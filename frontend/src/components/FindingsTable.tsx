@@ -1,7 +1,7 @@
 import {Fragment, useMemo, useState} from 'react'
 import {openURL} from '../api'
 import {Finding, SEVERITIES, SEVERITY_LABEL, Severity} from '../types'
-import {ecosystemsOf, filterFindings, findingKey} from '../lib/findings'
+import {ecosystemsOf, filterFindings, findingKey, jsPackageManager} from '../lib/findings'
 import {toggled} from '../lib/selection'
 import SeverityBadge from './SeverityBadge'
 
@@ -145,7 +145,7 @@ export default function FindingsTable({findings, selected, onToggle, onSetMany}:
                         </ul>
                         {!c.direct && c.ecosystem === 'npm' && (
                           <div className="hint">
-                            간접 의존성입니다. 수정 시 package.json의 <code>overrides</code>로 버전을 강제합니다.
+                            간접 의존성입니다. 수정 시 package.json의 <code>{jsPackageManager(c.manifest).override}</code>로 버전을 강제합니다.
                           </div>
                         )}
                       </td>

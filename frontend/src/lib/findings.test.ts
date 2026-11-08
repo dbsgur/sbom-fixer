@@ -1,7 +1,7 @@
 import {describe, expect, it} from 'vitest'
 import type {Finding} from '../types'
 import {
-  componentKey, countVulns, ecosystemsOf, EMPTY_FILTER, filterFindings, findingKey, fixPlan, manifestsOf,
+  componentKey, countVulns, ecosystemsOf, EMPTY_FILTER, filterFindings, findingKey, fixPlan, jsPackageManager, manifestsOf,
   matchesQuery, toFixRequest,
 } from './findings'
 
@@ -89,10 +89,24 @@ describe('toFixRequest', () => {
   })
 })
 
+describe('jsPackageManager', () => {
+  it('is chosen by lock file name and defaults to npm', () => {
+    expect(jsPackageManager('a/b/yarn.lock').override).toBe('resolutions')
+    expect(jsPackageManager('pnpm-lock.yaml').override).toBe('pnpm.overrides')
+    expect(jsPackageManager('package-lock.json').override).toBe('overrides')
+    expect(jsPackageManager('weird.lock').override).toBe('overrides')
+  })
+})
+
 describe('fixPlan', () => {
   it('describes the action per ecosystem', () => {
     expect(fixPlan(lodash)).toContain('의존성 버전 변경')
     expect(fixPlan(minimist)).toContain('overrides')
+    expect(fixPlan(finding({name: 'a', direct: false, manifest: 'web/yarn.lock'}))).toBe('package.json resolutions 추가 → yarn install')
+    expect(fixPlan(finding({name: 'a', manifest: 'pnpm-lock.yaml'}))).toBe(
+      'package.json 의존성 버전 변경 → pnpm install --lockfile-only',
+    )
+    expect(fixPlan(finding({name: 'a', direct: false, manifest: 'pnpm-lock.yaml'}))).toContain('pnpm.overrides')
     expect(fixPlan(finding({name: 'golang.org/x/net', ecosystem: 'Go', fixVersion: 'v0.33.0'}))).toBe(
       'go get golang.org/x/net@v0.33.0 → go mod tidy',
     )
