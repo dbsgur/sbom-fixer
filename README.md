@@ -36,9 +36,9 @@ npm · yarn · pnpm · Go · Python 프로젝트를 한 번에 다루고, 수정
 
 | | |
 |---|---|
-| **분석 대상** | `package-lock.json` · `yarn.lock` · `pnpm-lock.yaml` · `go.mod` · `requirements*.txt` (하위 폴더까지, 모노레포 OK) |
+| **분석 대상** | `package-lock.json` · `yarn.lock` · `pnpm-lock.yaml` · `go.mod` · `poetry.lock` · `uv.lock` · `requirements*.txt` (하위 폴더까지, 모노레포 OK) |
 | **취약점 DB** | [OSV.dev](https://osv.dev) (GitHub Advisory, Go Vulnerability DB, PyPA 등 통합) — API 키 불필요 |
-| **수정 방식** | npm/yarn/pnpm: `package.json` 수정 + lock 갱신 · Go: `go get` + `go mod tidy` · Python: 고정 버전 교체 |
+| **수정 방식** | npm/yarn/pnpm: `package.json` 수정 + lock 갱신 · Go: `go get` + `go mod tidy` · poetry/uv: `poetry add`·`uv add` 등 + lock 갱신 · requirements: 고정 버전 교체 |
 | **안전장치** | 수정 전 확인 다이얼로그, 실패 시 자동 원복, 수정 후 lock 재검증, 자동 재분석 |
 | **내보내기** | CycloneDX 1.5 SBOM, 취약점 리포트 JSON |
 
@@ -58,7 +58,7 @@ open build/bin/sbomapp.app
 
 ## 사용 방법
 
-아래 화면은 npm·yarn classic·yarn berry·pnpm·Go·Python 프로젝트가 섞인 데모 레포(`/tmp/demo-shop`)를 실제로 분석·수정한 결과입니다. 데모 레포는 [`internal/service/testdata/vulnerable`](internal/service/testdata/vulnerable)에 있습니다.
+아래 화면은 npm·yarn classic·yarn berry·pnpm·Go·Python(requirements) 프로젝트가 섞인 데모 레포(`/tmp/demo-shop`)를 실제로 분석·수정한 결과입니다. 데모 레포는 [`internal/service/testdata/vulnerable`](internal/service/testdata/vulnerable)에 있습니다(이후 poetry·uv 프로젝트가 추가되어 지금은 화면보다 패키지가 많습니다).
 
 ### 1. 레포 선택
 
@@ -88,7 +88,7 @@ open build/bin/sbomapp.app
 **경고 배너**
 - *Git 저장소가 아닙니다*: 수정 후 되돌리기 어려우니 백업을 권장
 - *커밋되지 않은 의존성 파일 변경이 있습니다*: 수정 전후 차이를 `git diff`로 구분하기 어려울 수 있음
-- *분석 경고*: 예) lock 파일 없는 `package.json`, `==`로 고정되지 않은 Python 패키지(버전을 몰라 제외)
+- *분석 경고*: 예) lock 파일 없는 `package.json`·`pyproject.toml`, `==`로 고정되지 않은 requirements 패키지(버전을 몰라 제외)
 
 **조치 필요 표**
 
@@ -127,9 +127,12 @@ open build/bin/sbomapp.app
 | yarn classic (v1) | 〃 | `resolutions` 추가 | `yarn install --ignore-scripts` |
 | pnpm | 〃 | `pnpm.overrides` 추가 | `pnpm install --lockfile-only --ignore-scripts` |
 | Go | `go get 모듈@버전` | 〃 | `go mod tidy` |
-| Python | `requirements*.txt`의 `==버전` 교체 (extras·마커·주석 유지) | – | – (가상환경에서 `pip install -r`로 재설치 필요) |
+| poetry | `poetry add 이름<제약> --lock` (그룹 유지: `--group dev`) | `poetry update 이름 --lock` (상위 패키지 제약 범위 내) | `--lock`이 lock만 갱신 |
+| uv | `uv add 이름<제약> --no-sync` (`--group`·`--optional` 유지) | `uv lock --upgrade-package 이름==버전` | `--no-sync`로 설치 없이 lock만 갱신 |
+| requirements | `requirements*.txt`의 `==버전` 교체 (extras·마커·주석 유지) | – | – (가상환경에서 `pip install -r`로 재설치 필요) |
 
 - 설치 스크립트는 실행하지 않습니다(`--ignore-scripts`).
+- **poetry/uv**는 기존 선언의 제약 형식(`==`·`~=`·`^`·`~`, 그 외는 `>=`)과 extras(`[socks]`)·환경 마커를 유지합니다. 직접 의존성을 먼저 올린 뒤 간접 의존성을 처리해서, 상위 패키지(requests) 업그레이드로 풀린 하위 패키지(urllib3)까지 한 번에 올라갑니다. 상위 제약 때문에 못 올리면 강제하지 않고 원인을 알려 줍니다.
 - `package.json`의 `packageManager`(예: `"pnpm@9.15.0"`)에 버전이 고정돼 있으면 corepack으로 **그 버전을 그대로** 실행합니다. yarn berry lock에는 전역 yarn classic을 쓰지 않고, pnpm은 lockfile 버전에 맞는 메이저(5.x→7, 6.x→8, 9.x→9)를 써서 lock 형식이 바뀌지 않게 합니다.
 
 ### 6. 수정 결과 확인
@@ -282,6 +285,8 @@ jq -r '.findings[] | select(.package.direct and .majorBump) | "\(.package.name) 
 | `yarn.lock` | classic(v1), berry(v2+) — `workspace:`·`link:`·`patch:` 항목 제외 | ✓ (package.json 기준) | ✓ (devDependencies 기준) |
 | `pnpm-lock.yaml` | lockfileVersion 5.x, 6.x, 9.x — 워크스페이스 importer 포함 | ✓ | ✓ |
 | `go.mod` | `require`(`// indirect` 구분), 같은 모듈 `replace` 반영 | ✓ | – |
+| `poetry.lock` | Poetry 1.x(`category`), 2.x(`groups`) — 로컬 경로 의존성 제외 | ✓ (pyproject.toml 기준) | ✓ |
+| `uv.lock` | uv lock v1 — 워크스페이스 멤버 포함, 로컬 경로 의존성 제외 | ✓ | ✓ (dev에서만 도달 가능한 패키지) |
 | `requirements*.txt` | `==`/`===`로 고정된 줄 (extras·환경 마커·주석 허용) | 모두 직접 | – |
 
 ## 수정 버전은 어떻게 정하나요?
@@ -294,7 +299,7 @@ jq -r '.findings[] | select(.package.direct and .majorBump) | "\(.package.name) 
 ## 제한 사항
 
 - **yarn classic**에는 lock만 갱신하는 모드가 없어서 `node_modules`가 생성됩니다.
-- **Python**은 `requirements*.txt`만 수정합니다. `poetry.lock`, `uv.lock`, `Pipfile.lock`은 아직 지원하지 않습니다.
+- **Python**: `Pipfile.lock`(pipenv)은 아직 지원하지 않습니다. poetry에서 표 형식(`{version = ..., markers = ...}`)으로 선언된 의존성은 정보 손실을 막기 위해 자동 수정하지 않습니다. poetry에는 간접 의존성을 강제하는 기능이 없어 상위 패키지 제약 안에서만 올립니다.
 - yarn PnP의 `.pnp.cjs`, `pnpm-workspace.yaml`의 `overrides`는 다루지 않습니다.
 - 간접 의존성 강제(`overrides`/`resolutions`)는 해당 패키지의 **모든 사용처**에 적용됩니다. 메이저 버전이 다른 사본이 함께 쓰이는 경우 호환성을 확인하세요.
 - 취약점 조회에 인터넷 연결(api.osv.dev)이 필요합니다.
@@ -306,11 +311,11 @@ jq -r '.findings[] | select(.package.direct and .majorBump) | "\(.package.name) 
 flowchart LR
   UI["React UI<br/>frontend/src"] -- Wails 바인딩 --> App["app.go<br/>(어댑터)"]
   App --> S["service<br/>분석·수정·내보내기 흐름"]
-  S --> SC["sbom.Scanner<br/>+ Parser (npm/yarn/pnpm/go/pip)"]
+  S --> SC["sbom.Scanner<br/>+ Parser (npm/yarn/pnpm/go/poetry/uv/pip)"]
   S --> CH["vuln.Checker"]
   CH -- AdvisoryDB --> OSV[("OSV.dev")]
-  S --> FX["fixer.Service<br/>+ Fixer (npm·yarn·pnpm / Go / Python)"]
-  FX -- Runner --> PM["npm · yarn · pnpm · go"]
+  S --> FX["fixer.Service<br/>+ Fixer (npm·yarn·pnpm / Go / poetry·uv·pip)"]
+  FX -- Runner --> PM["npm · yarn · pnpm · go · poetry · uv"]
 ```
 
 ```
@@ -319,7 +324,7 @@ internal/
   service/   분석 → 취약점 조회 → 수정 → 재분석, 내보내기 형식 (인터페이스에만 의존)
   sbom/      Scanner + 형식별 Parser, CycloneDX
   vuln/      Checker(분석 로직) ← AdvisoryDB 인터페이스 → OSVClient(HTTP)
-  fixer/     Service + 생태계별 Fixer(npm·yarn·pnpm은 jsPackageManager로 분기), Runner, Workspace(백업/로그)
+  fixer/     Service + 생태계별 Fixer(npm·yarn·pnpm은 jsPackageManager, Python은 requirements/poetry/uv로 분기), Runner, Workspace
   gitutil/   git 상태 조회
   shellenv/  Finder로 실행해도 npm/go를 찾을 수 있도록 PATH 보정
 frontend/src/
@@ -338,7 +343,7 @@ frontend/src/
 nvm use        # Node 24 (.nvmrc)
 make dev       # 개발 모드 (핫 리로드, 브라우저: http://localhost:34115)
 make test      # Go(-race) + 프론트엔드(vitest) 유닛 테스트
-make test-e2e  # 실제 OSV + npm·yarn·pnpm·go로 분석→수정→재분석 (네트워크 필요)
+make test-e2e  # 실제 OSV + npm·yarn·pnpm·go·poetry·uv로 분석→수정→재분석 (네트워크 필요, poetry/uv 없으면 해당 프로젝트는 분석만)
 make cover     # 커버리지
 make build     # build/bin/sbomapp.app
 ```

@@ -80,13 +80,24 @@ func TestE2E_ScanFixRescan(t *testing.T) {
 		want[lock+"|lodash"] = false
 		want[lock+"|minimist"] = false
 	}
+	// Python lock projects need poetry / uv on PATH; without them only the
+	// analysis is checked and fixes for that project are skipped.
+	skipFix := map[string]bool{}
+	for lock, tool := range map[string]string{"ml-poetry/poetry.lock": "poetry", "ml-uv/uv.lock": "uv"} {
+		want[lock+"|requests"] = false
+		want[lock+"|urllib3"] = false
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Logf("%s not installed: %s will be analysed but not fixed", tool, lock)
+			skipFix[lock] = true
+		}
+	}
 	var reqs []fixer.Request
 	for _, f := range rep.Findings {
 		k := f.Component.Manifest + "|" + f.Component.Name
 		if _, ok := want[k]; ok {
 			want[k] = true
 		}
-		if !f.Fixable {
+		if !f.Fixable || skipFix[f.Component.Manifest] {
 			continue
 		}
 		reqs = append(reqs, fixer.Request{
@@ -114,7 +125,7 @@ func TestE2E_ScanFixRescan(t *testing.T) {
 		t.Fatal("rescan missing")
 	}
 	for _, f := range fr.Rescan.Findings {
-		if f.Fixable {
+		if f.Fixable && !skipFix[f.Component.Manifest] {
 			t.Errorf("still fixable after fix: %s %s@%s -> %s", f.Component.Manifest, f.Component.Name, f.Component.Version, f.FixVersion)
 		}
 	}

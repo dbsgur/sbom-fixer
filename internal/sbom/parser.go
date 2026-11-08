@@ -28,5 +28,8 @@ func DefaultParsers() []Parser {
 		NpmManifestCheck{},
 		GoModParser{},
 		RequirementsParser{},
+		PoetryLockParser{},
+		UvLockParser{},
+		PyprojectCheck{},
 	}
 }

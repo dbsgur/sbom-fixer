@@ -173,7 +173,7 @@ export default function App() {
             <div className="empty-icon">⌗</div>
             <h1>레포지토리의 의존성을 분석하고 취약점을 수정합니다</h1>
             <p className="muted">
-              package-lock.json · yarn.lock · pnpm-lock.yaml (npm), go.mod (Go), requirements*.txt (Python)을 찾아 SBOM을 만들고,
+              package-lock.json · yarn.lock · pnpm-lock.yaml (npm), go.mod (Go), requirements*.txt · poetry.lock · uv.lock (Python)을 찾아 SBOM을 만들고,
               OSV.dev 취약점 DB와 대조합니다.
             </p>
             <button className="primary big" onClick={pickFolder}>폴더 선택</button>
