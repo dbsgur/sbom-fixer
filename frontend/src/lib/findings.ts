@@ -58,6 +58,22 @@ export function jsPackageManager(manifest: string) {
   return JS_PACKAGE_MANAGERS[base] ?? JS_PACKAGE_MANAGERS['package-lock.json']
 }
 
+function pythonPlan(f: Finding): string {
+  const c = f.component
+  const base = c.manifest.slice(c.manifest.lastIndexOf('/') + 1)
+  if (base === 'poetry.lock') {
+    return c.direct
+      ? `pyproject.toml 선언을 ${f.fixVersion}로 변경 (제약 형식 유지) → poetry add --lock`
+      : `poetry update ${c.name} --lock (상위 패키지 제약 범위 내)`
+  }
+  if (base === 'uv.lock') {
+    return c.direct
+      ? `pyproject.toml 선언을 ${f.fixVersion}로 변경 (제약 형식 유지) → uv add --no-sync`
+      : `uv lock --upgrade-package ${c.name}==${f.fixVersion}`
+  }
+  return `${c.manifest}의 고정 버전 교체`
+}
+
 /** Human readable description of what a fix will do. */
 export function fixPlan(f: Finding): string {
   const c = f.component
@@ -69,7 +85,7 @@ export function fixPlan(f: Finding): string {
     case 'Go':
       return `go get ${c.name}@${f.fixVersion} → go mod tidy`
     case 'PyPI':
-      return `${c.manifest}의 고정 버전 교체`
+      return pythonPlan(f)
   }
   return ''
 }
