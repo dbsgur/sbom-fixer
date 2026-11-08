@@ -66,7 +66,7 @@ func newService(sc *fakeScanner, ch *fakeChecker) (*Service, *fakeGit) {
 func TestScan_BuildsReport(t *testing.T) {
 	sc := &fakeScanner{res: &sbom.Result{
 		Components: []sbom.Component{lodash, text},
-		Manifests:  []string{"web/package-lock.json", "go.mod"},
+		Manifests:  []string{"web/package-lock.json", "go.mod", "app/pnpm-lock.yaml"},
 	}}
 	ch := &fakeChecker{findings: []vuln.Finding{{Component: lodash, Severity: vuln.SeverityHigh}}}
 	svc, git := newService(sc, ch)
@@ -82,7 +82,7 @@ func TestScan_BuildsReport(t *testing.T) {
 	if !rep.GitRepo || len(rep.GitDirty) != 1 {
 		t.Errorf("git: %v %v", rep.GitRepo, rep.GitDirty)
 	}
-	wantWatch := []string{"web/package-lock.json", "web/package.json", "go.mod", "go.sum"}
+	wantWatch := []string{"web/package-lock.json", "web/package.json", "go.mod", "go.sum", "app/pnpm-lock.yaml", "app/package.json"}
 	if len(git.watched) != len(wantWatch) {
 		t.Fatalf("watched = %v", git.watched)
 	}

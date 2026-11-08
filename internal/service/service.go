@@ -94,7 +94,7 @@ func (s *Service) Scan(ctx context.Context, root string, progress func(string)) 
 		rep.Ecosystems[c.Ecosystem]++
 	}
 	if len(res.Components) == 0 {
-		rep.Warnings = append(rep.Warnings, "지원하는 의존성 파일(package-lock.json, go.mod, requirements*.txt)을 찾지 못했습니다")
+		rep.Warnings = append(rep.Warnings, "지원하는 의존성 파일(package-lock.json, yarn.lock, pnpm-lock.yaml, go.mod, requirements*.txt)을 찾지 못했습니다")
 	} else {
 		findings, err := s.Checker.Check(ctx, res.Components, progress)
 		if err != nil {
@@ -170,7 +170,7 @@ func watchedFiles(manifests []string) []string {
 		dir := filepath.Dir(m)
 		out = append(out, m)
 		switch filepath.Base(m) {
-		case "package-lock.json":
+		case "package-lock.json", "yarn.lock", "pnpm-lock.yaml":
 			out = append(out, filepath.Join(dir, "package.json"))
 		case "go.mod":
 			out = append(out, filepath.Join(dir, "go.sum"))
