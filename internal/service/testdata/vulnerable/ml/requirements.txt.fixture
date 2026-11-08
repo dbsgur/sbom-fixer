@@ -1,0 +1,3 @@
+requests==2.19.0
+flask>=2.0  # unpinned
+Jinja2==2.10 ; python_version>"3"
