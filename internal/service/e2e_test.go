@@ -69,12 +69,22 @@ func TestE2E_ScanFixRescan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Packages pinned to known-vulnerable versions in the fixture.
-	want := map[string]bool{"lodash": false, "minimist": false, "golang.org/x/text": false, "jinja2": false, "requests": false}
+	// Packages pinned to known-vulnerable versions, per manifest. The same
+	// npm project exists once per JS package manager.
+	want := map[string]bool{
+		"svc/go.mod|golang.org/x/text": false,
+		"ml/requirements.txt|jinja2":   false,
+		"ml/requirements.txt|requests": false,
+	}
+	for _, lock := range []string{"web/package-lock.json", "web-yarn/yarn.lock", "web-berry/yarn.lock", "web-pnpm/pnpm-lock.yaml"} {
+		want[lock+"|lodash"] = false
+		want[lock+"|minimist"] = false
+	}
 	var reqs []fixer.Request
 	for _, f := range rep.Findings {
-		if _, ok := want[f.Component.Name]; ok {
-			want[f.Component.Name] = true
+		k := f.Component.Manifest + "|" + f.Component.Name
+		if _, ok := want[k]; ok {
+			want[k] = true
 		}
 		if !f.Fixable {
 			continue
@@ -85,9 +95,9 @@ func TestE2E_ScanFixRescan(t *testing.T) {
 			Manifest: f.Component.Manifest, Direct: f.Component.Direct,
 		})
 	}
-	for name, found := range want {
+	for k, found := range want {
 		if !found {
-			t.Errorf("expected %s to be reported as vulnerable", name)
+			t.Errorf("expected %s to be reported as vulnerable", k)
 		}
 	}
 
@@ -105,8 +115,11 @@ func TestE2E_ScanFixRescan(t *testing.T) {
 	}
 	for _, f := range fr.Rescan.Findings {
 		if f.Fixable {
-			t.Errorf("still fixable after fix: %s@%s -> %s", f.Component.Name, f.Component.Version, f.FixVersion)
+			t.Errorf("still fixable after fix: %s %s@%s -> %s", f.Component.Manifest, f.Component.Name, f.Component.Version, f.FixVersion)
 		}
+	}
+	for _, c := range fr.Fix.Commands {
+		t.Logf("[%s] $ %s (ok=%v)", c.Dir, c.Command, c.Success)
 	}
 }
 
