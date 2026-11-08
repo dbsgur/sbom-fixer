@@ -2,18 +2,32 @@ package fixer
 
 import (
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 
 	"sbomapp/internal/sbom"
 )
 
-// PythonFixer rewrites exact pins in requirements files.
+// PythonFixer upgrades PyPI packages. The manifest decides how:
+// requirements*.txt pins are rewritten in place, poetry.lock and uv.lock
+// projects are updated through `poetry` / `uv` (see pylock.go).
 type PythonFixer struct{}
 
 func (PythonFixer) Ecosystem() string { return sbom.EcosystemPyPI }
 
 func (PythonFixer) Fix(ws *Workspace, g []Request) []Result {
+	switch filepath.Base(g[0].Manifest) {
+	case "poetry.lock":
+		return fixPyLock(ws, g, poetryTool)
+	case "uv.lock":
+		return fixPyLock(ws, g, uvTool)
+	}
+	return fixRequirements(ws, g)
+}
+
+// fixRequirements rewrites exact pins in a requirements file.
+func fixRequirements(ws *Workspace, g []Request) []Result {
 	path := ws.Abs(g[0].Manifest)
 	ws.Progress("Python 의존성 수정 중: " + g[0].Manifest)
 	orig, err := os.ReadFile(path)
