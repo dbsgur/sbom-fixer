@@ -31,18 +31,12 @@ func TestOSVClient_QueryIDs_BatchesAndStripsGoPrefix(t *testing.T) {
 		}
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		var resp osvBatchResponse
-		resp.Results = make([]struct {
-			Vulns []struct {
-				ID string `json:"id"`
-			} `json:"vulns"`
-		}, len(body.Queries))
+		resp.Results = make([]osvBatchResult, len(body.Queries))
 		for i, q := range body.Queries {
 			if q.Package.Ecosystem == "Go" && strings.HasPrefix(q.Version, "v") {
 				t.Errorf("Go version should be sent without v: %s", q.Version)
 			}
-			resp.Results[i].Vulns = append(resp.Results[i].Vulns, struct {
-				ID string `json:"id"`
-			}{ID: "ID-" + q.Package.Name})
+			resp.Results[i].Vulns = append(resp.Results[i].Vulns, osvVulnRef{ID: "ID-" + q.Package.Name})
 		}
 		_ = json.NewEncoder(w).Encode(resp)
 	}))
