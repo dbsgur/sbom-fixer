@@ -48,11 +48,13 @@ type ScanReport struct {
 	DurationMs int64            `json:"durationMs"`
 }
 
-// FixReport is returned after applying fixes; Rescan is the fresh analysis
-// (nil if the rescan itself failed).
+// FixReport is returned after applying fixes; Rescan is the fresh analysis.
+// If the rescan itself failed, Rescan is nil and RescanError says why, so the
+// UI can tell the user the shown findings predate the fix.
 type FixReport struct {
-	Fix    *fixer.Report `json:"fix"`
-	Rescan *ScanReport   `json:"rescan"`
+	Fix         *fixer.Report `json:"fix"`
+	Rescan      *ScanReport   `json:"rescan"`
+	RescanError string        `json:"rescanError,omitempty"`
 }
 
 // Service wires the steps together.
@@ -132,7 +134,7 @@ func (s *Service) Fix(ctx context.Context, root string, reqs []fixer.Request, pr
 	rescan, err := s.Scan(ctx, root, progress)
 	if err != nil {
 		// The fix itself happened; don't lose its results because of the rescan.
-		return &FixReport{Fix: fr}, nil
+		return &FixReport{Fix: fr, RescanError: err.Error()}, nil
 	}
 	return &FixReport{Fix: fr, Rescan: rescan}, nil
 }
