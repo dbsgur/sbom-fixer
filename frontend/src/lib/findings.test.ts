@@ -120,5 +120,11 @@ describe('fixPlan', () => {
     expect(fixPlan(finding({name: 'urllib3', ecosystem: 'PyPI', manifest: 'uv.lock', direct: false, fixVersion: '2.8.0'}))).toBe(
       'uv lock --upgrade-package urllib3==2.8.0',
     )
+    expect(fixPlan(finding({name: 'requests', ecosystem: 'PyPI', manifest: 'api/Pipfile.lock', fixVersion: '2.33.0'}))).toBe(
+      'Pipfile 선언을 2.33.0로 변경 (제약 형식 유지) → pipenv upgrade requests --lock-only',
+    )
+    expect(fixPlan(finding({name: 'urllib3', ecosystem: 'PyPI', manifest: 'Pipfile.lock', direct: false}))).toBe(
+      'pipenv upgrade urllib3 --lock-only (상위 패키지 제약 범위 내)',
+    )
   })
 })

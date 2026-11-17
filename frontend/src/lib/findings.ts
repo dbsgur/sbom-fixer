@@ -71,6 +71,11 @@ function pythonPlan(f: Finding): string {
       ? `pyproject.toml 선언을 ${f.fixVersion}로 변경 (제약 형식 유지) → uv add --no-sync`
       : `uv lock --upgrade-package ${c.name}==${f.fixVersion}`
   }
+  if (base === 'Pipfile.lock') {
+    return c.direct
+      ? `Pipfile 선언을 ${f.fixVersion}로 변경 (제약 형식 유지) → pipenv upgrade ${c.name} --lock-only`
+      : `pipenv upgrade ${c.name} --lock-only (상위 패키지 제약 범위 내)`
+  }
   return `${c.manifest}의 고정 버전 교체`
 }
 
