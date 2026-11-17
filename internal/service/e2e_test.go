@@ -73,6 +73,7 @@ func TestE2E_ScanFixRescan(t *testing.T) {
 	// npm project exists once per JS package manager.
 	want := map[string]bool{
 		"svc/go.mod|golang.org/x/text": false,
+		"svc/go.mod|stdlib":            false,
 		"ml/requirements.txt|jinja2":   false,
 		"ml/requirements.txt|requests": false,
 	}
