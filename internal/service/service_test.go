@@ -152,6 +152,9 @@ func TestFix_KeepsResultWhenRescanFails(t *testing.T) {
 	if err != nil || fr.Fix == nil || fr.Rescan != nil {
 		t.Errorf("fr=%+v err=%v", fr, err)
 	}
+	if fr.RescanError != "x" {
+		t.Errorf("rescan failure must be reported, got %q", fr.RescanError)
+	}
 }
 
 func TestFix_RequiresSelection(t *testing.T) {
