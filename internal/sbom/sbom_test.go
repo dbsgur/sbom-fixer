@@ -139,6 +139,36 @@ replace github.com/foo/bar => github.com/foo/bar v1.2.0
 	if c, ok := got["github.com/foo/bar@v1.2.0"]; !ok || c.Direct {
 		t.Errorf("replace not honoured or indirect flag wrong: %+v", got)
 	}
+	if c, ok := got["stdlib@v1.22.0"]; !ok || !c.Direct || c.Ecosystem != EcosystemGo {
+		t.Errorf("stdlib should be reported from the go directive: %+v", got)
+	}
+}
+
+func TestGoModParser_StdlibVersion(t *testing.T) {
+	cases := map[string]string{
+		"go 1.22\n":                       "v1.22.0",
+		"go 1.21.3\ntoolchain go1.22.5\n": "v1.22.5", // toolchain newer → used
+		"go 1.23.1\ntoolchain go1.22.0\n": "v1.23.1", // go directive newer → used
+		"go 1.21rc2\n":                    "v1.21.0-rc.2",
+		"require a.b/c v1.0.0\n":          "", // no directive → no stdlib
+		"go 1.22\ntoolchain default\n":    "v1.22.0",
+	}
+	for body, want := range cases {
+		root := writeFiles(t, map[string]string{"go.mod": "module x\n" + body})
+		res, err := GoModParser{}.Parse(filepath.Join(root, "go.mod"), "go.mod")
+		if err != nil {
+			t.Fatalf("%q: %v", body, err)
+		}
+		got := ""
+		for _, c := range res.Components {
+			if c.Name == GoStdlib {
+				got = c.Version
+			}
+		}
+		if got != want {
+			t.Errorf("%q: stdlib = %q, want %q", body, got, want)
+		}
+	}
 }
 
 func TestParseRequirementLine(t *testing.T) {

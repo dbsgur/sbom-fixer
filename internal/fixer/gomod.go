@@ -12,7 +12,10 @@ import (
 	"sbomapp/internal/vuln"
 )
 
-// GoFixer runs `go get module@version` followed by `go mod tidy`.
+// GoFixer runs `go get module@version` followed by `go mod tidy`. The Go
+// standard library is raised by pinning go.mod's toolchain directive instead
+// (`go mod edit -toolchain=goX.Y.Z`), which leaves the go language version —
+// and so the minimum Go required of the module's users — untouched.
 type GoFixer struct{}
 
 func (GoFixer) Ecosystem() string { return sbom.EcosystemGo }
@@ -29,6 +32,16 @@ func (GoFixer) Fix(ws *Workspace, g []Request) []Result {
 	var ok []int
 	for i, r := range g {
 		results[i].Request = r
+		if r.Name == sbom.GoStdlib {
+			tc := goToolchain(r.TargetVersion)
+			if _, err := ws.Run(dir, env, "go", "mod", "edit", "-toolchain="+tc); err != nil {
+				results[i].Message = "go mod edit 실패 (명령 로그 참고)"
+				continue
+			}
+			results[i].Message = fmt.Sprintf("go.mod의 toolchain을 %s로 지정 (Go 1.21+는 빌드 시 이 버전 이상의 툴체인을 사용)", tc)
+			ok = append(ok, i)
+			continue
+		}
 		target := goVersion(r.TargetVersion)
 		if _, err := ws.Run(dir, env, "go", "get", r.Name+"@"+target); err != nil {
 			results[i].Message = "go get 실패 (명령 로그 참고)"
@@ -71,6 +84,16 @@ func goVersion(v string) string {
 		return v
 	}
 	return "v" + v
+}
+
+// goToolchain turns a module-style Go release ("v1.22.5", "1.21.0-rc.2")
+// into a toolchain name ("go1.22.5", "go1.21rc2").
+func goToolchain(v string) string {
+	v = strings.TrimPrefix(v, "v")
+	if base, pre, ok := strings.Cut(v, "-"); ok {
+		v = strings.TrimSuffix(base, ".0") + strings.ReplaceAll(pre, ".", "")
+	}
+	return "go" + v
 }
 
 // verifyGoModule checks go.mod now requires at least the target version.

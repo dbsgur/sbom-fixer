@@ -175,6 +175,47 @@ func TestGoFixer_GetFailure(t *testing.T) {
 	}
 }
 
+func TestGoFixer_StdlibPinsToolchain(t *testing.T) {
+	root := setup(t, map[string]string{"go.mod": goMod})
+	run := &fakeRunner{handle: func(dir, cmd string) error {
+		if strings.HasPrefix(cmd, "go mod edit") {
+			return os.WriteFile(filepath.Join(dir, "go.mod"), []byte(strings.Replace(goMod, "go 1.22\n", "go 1.22\n\ntoolchain go1.22.5\n", 1)), 0o644)
+		}
+		return nil
+	}}
+	rep := NewService(run, GoFixer{}).Apply(context.Background(), root, []Request{
+		{Ecosystem: "Go", Name: "stdlib", CurrentVersion: "v1.22.0", TargetVersion: "v1.22.5", Manifest: "go.mod", Direct: true},
+	}, nil)
+	r := rep.Results[0]
+	if !r.Success || !strings.Contains(r.Message, "toolchain") {
+		t.Fatalf("result = %+v", r)
+	}
+	if strings.Join(run.calls, " | ") != "go mod edit -toolchain=go1.22.5 | go mod tidy" {
+		t.Errorf("calls = %v", run.calls)
+	}
+	if strings.Contains(r.Message, "go 버전이") {
+		t.Errorf("go directive did not change: %s", r.Message)
+	}
+}
+
+func TestGoFixer_StdlibNotRaised(t *testing.T) {
+	root := setup(t, map[string]string{"go.mod": goMod})
+	rep := NewService(&fakeRunner{}, GoFixer{}).Apply(context.Background(), root, []Request{
+		{Ecosystem: "Go", Name: "stdlib", CurrentVersion: "v1.22.0", TargetVersion: "v1.22.5", Manifest: "go.mod", Direct: true},
+	}, nil)
+	if r := rep.Results[0]; r.Success || !strings.Contains(r.Message, "여전히 v1.22.0") {
+		t.Errorf("unchanged go.mod must not count as fixed: %+v", r)
+	}
+}
+
+func TestGoToolchain(t *testing.T) {
+	for in, want := range map[string]string{"v1.22.5": "go1.22.5", "1.23.0": "go1.23.0", "v1.21.0-rc.2": "go1.21rc2"} {
+		if got := goToolchain(in); got != want {
+			t.Errorf("goToolchain(%q) = %q want %q", in, got, want)
+		}
+	}
+}
+
 func TestPythonFixer(t *testing.T) {
 	orig := "requests==2.19.0\nflask>=2\nJinja2 == 2.10 ; python_version>'3'  # web\n"
 	root := setup(t, map[string]string{"requirements.txt": orig})

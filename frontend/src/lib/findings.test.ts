@@ -110,6 +110,9 @@ describe('fixPlan', () => {
     expect(fixPlan(finding({name: 'golang.org/x/net', ecosystem: 'Go', fixVersion: 'v0.33.0'}))).toBe(
       'go get golang.org/x/net@v0.33.0 → go mod tidy',
     )
+    expect(fixPlan(finding({name: 'stdlib', ecosystem: 'Go', fixVersion: 'v1.22.5'}))).toBe(
+      'go.mod toolchain을 go1.22.5로 지정 → go mod tidy',
+    )
     expect(fixPlan(finding({name: 'requests', ecosystem: 'PyPI', manifest: 'requirements.txt'}))).toContain('requirements.txt')
     expect(fixPlan(finding({name: 'serde', ecosystem: 'crates.io'}))).toBe('')
     expect(fixPlan(finding({name: 'requests', ecosystem: 'PyPI', manifest: 'ml/poetry.lock', fixVersion: '2.33.0'}))).toBe(
