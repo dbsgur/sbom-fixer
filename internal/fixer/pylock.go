@@ -23,6 +23,10 @@ type pyTool struct {
 	transitiveNote string
 }
 
+// parentConstraintNote explains a transitive package that a tool without an
+// override mechanism (poetry, pipenv) could not move past its parents' ranges.
+const parentConstraintNote = "상위 패키지의 버전 제약 때문에 올리지 못했습니다. 이 패키지를 사용하는 상위 패키지를 먼저 수정하세요"
+
 var poetryTool = pyTool{
 	name:   "poetry",
 	parser: sbom.PoetryLockParser{},
@@ -31,7 +35,7 @@ var poetryTool = pyTool{
 	},
 	// poetry has no override mechanism: update within the parents' ranges.
 	upgradeTransitive: func(name, _ string) []string { return []string{"update", name, "--lock"} },
-	transitiveNote:    "상위 패키지의 버전 제약 때문에 올리지 못했습니다. 이 패키지를 사용하는 상위 패키지를 먼저 수정하세요",
+	transitiveNote:    parentConstraintNote,
 }
 
 var uvTool = pyTool{

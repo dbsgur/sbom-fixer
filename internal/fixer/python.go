@@ -11,7 +11,8 @@ import (
 
 // PythonFixer upgrades PyPI packages. The manifest decides how:
 // requirements*.txt pins are rewritten in place, poetry.lock and uv.lock
-// projects are updated through `poetry` / `uv` (see pylock.go).
+// projects are updated through `poetry` / `uv` (see pylock.go), Pipfile.lock
+// projects through `pipenv` (see pipenv.go).
 type PythonFixer struct{}
 
 func (PythonFixer) Ecosystem() string { return sbom.EcosystemPyPI }
@@ -22,6 +23,8 @@ func (PythonFixer) Fix(ws *Workspace, g []Request) []Result {
 		return fixPyLock(ws, g, poetryTool)
 	case "uv.lock":
 		return fixPyLock(ws, g, uvTool)
+	case "Pipfile.lock":
+		return fixPipenv(ws, g)
 	}
 	return fixRequirements(ws, g)
 }
