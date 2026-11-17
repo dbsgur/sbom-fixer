@@ -127,6 +127,7 @@ open build/bin/sbomapp.app
 | yarn classic (v1) | 〃 | `resolutions` 추가 | `yarn install --ignore-scripts` |
 | pnpm | 〃 | `pnpm.overrides` 추가 | `pnpm install --lockfile-only --ignore-scripts` |
 | Go | `go get 모듈@버전` | 〃 | `go mod tidy` |
+| Go 표준 라이브러리 | `go mod edit -toolchain=goX.Y.Z` (`go` 지시어는 그대로) | – | `go mod tidy` |
 | poetry | `poetry add 이름<제약> --lock` (그룹 유지: `--group dev`) | `poetry update 이름 --lock` (상위 패키지 제약 범위 내) | `--lock`이 lock만 갱신 |
 | uv | `uv add 이름<제약> --no-sync` (`--group`·`--optional` 유지) | `uv lock --upgrade-package 이름==버전` | `--no-sync`로 설치 없이 lock만 갱신 |
 | requirements | `requirements*.txt`의 `==버전` 교체 (extras·마커·주석 유지) | – | – (가상환경에서 `pip install -r`로 재설치 필요) |
@@ -284,7 +285,7 @@ jq -r '.findings[] | select(.package.direct and .majorBump) | "\(.package.name) 
 | `package-lock.json` | lockfileVersion 1, 2, 3 | ✓ | ✓ |
 | `yarn.lock` | classic(v1), berry(v2+) — `workspace:`·`link:`·`patch:` 항목 제외 | ✓ (package.json 기준) | ✓ (devDependencies 기준) |
 | `pnpm-lock.yaml` | lockfileVersion 5.x, 6.x, 9.x — 워크스페이스 importer 포함 | ✓ | ✓ |
-| `go.mod` | `require`(`// indirect` 구분), 같은 모듈 `replace` 반영 | ✓ | – |
+| `go.mod` | `require`(`// indirect` 구분), 같은 모듈 `replace` 반영, `go`·`toolchain` 지시어 → 표준 라이브러리(`stdlib`) | ✓ | – |
 | `poetry.lock` | Poetry 1.x(`category`), 2.x(`groups`) — 로컬 경로 의존성 제외 | ✓ (pyproject.toml 기준) | ✓ |
 | `uv.lock` | uv lock v1 — 워크스페이스 멤버 포함, 로컬 경로 의존성 제외 | ✓ | ✓ (dev에서만 도달 가능한 패키지) |
 | `requirements*.txt` | `==`/`===`로 고정된 줄 (extras·환경 마커·주석 허용) | 모두 직접 | – |
@@ -300,6 +301,7 @@ jq -r '.findings[] | select(.package.direct and .majorBump) | "\(.package.name) 
 
 - **yarn classic**에는 lock만 갱신하는 모드가 없어서 `node_modules`가 생성됩니다.
 - **Python**: `Pipfile.lock`(pipenv)은 아직 지원하지 않습니다. poetry에서 표 형식(`{version = ..., markers = ...}`)으로 선언된 의존성은 정보 손실을 막기 위해 자동 수정하지 않습니다. poetry에는 간접 의존성을 강제하는 기능이 없어 상위 패키지 제약 안에서만 올립니다.
+- **Go 표준 라이브러리**는 `go.mod`의 `go`·`toolchain` 지시어 중 높은 버전을 기준으로 검사합니다. 실제 빌드에 쓰는 Go가 이보다 새 버전이면 이미 해결된 취약점이 표시될 수 있습니다. 수정은 `toolchain` 지시어를 올려 Go 1.21+가 빌드 시 그 버전 이상을 쓰도록 강제하는 방식입니다. CI 등에서 `GOTOOLCHAIN=local`로 고정 버전을 쓰면 그 환경의 Go를 직접 올려야 합니다.
 - yarn PnP의 `.pnp.cjs`, `pnpm-workspace.yaml`의 `overrides`는 다루지 않습니다.
 - 간접 의존성 강제(`overrides`/`resolutions`)는 해당 패키지의 **모든 사용처**에 적용됩니다. 메이저 버전이 다른 사본이 함께 쓰이는 경우 호환성을 확인하세요.
 - 취약점 조회에 인터넷 연결(api.osv.dev)이 필요합니다.
