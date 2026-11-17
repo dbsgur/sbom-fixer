@@ -83,7 +83,9 @@ export function fixPlan(f: Finding): string {
       return c.direct ? `package.json 의존성 버전 변경 → ${pm.update}` : `package.json ${pm.override} 추가 → ${pm.update}`
     }
     case 'Go':
-      return `go get ${c.name}@${f.fixVersion} → go mod tidy`
+      return c.name === 'stdlib'
+        ? `go.mod toolchain을 go${f.fixVersion.replace(/^v/, '')}로 지정 → go mod tidy`
+        : `go get ${c.name}@${f.fixVersion} → go mod tidy`
     case 'PyPI':
       return pythonPlan(f)
   }
