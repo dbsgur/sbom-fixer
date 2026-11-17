@@ -1,6 +1,7 @@
 //go:build e2e
 
-// End-to-end test against the real world: OSV.dev, npm and the go tool.
+// End-to-end test against the real world: OSV.dev, npm, the go tool and,
+// when installed, poetry / uv / pipenv.
 // Run with `make test-e2e`. Not part of `make test` / CI because it needs
 // network access and is slower.
 package service
@@ -57,6 +58,8 @@ func TestE2E_ScanFixRescan(t *testing.T) {
 		}
 	}
 	root := copyFixture(t, "testdata/vulnerable")
+	// pipenv creates a virtualenv to resolve in; keep it out of ~/.local.
+	t.Setenv("WORKON_HOME", t.TempDir())
 	svc := &Service{
 		Scanner: sbom.NewScanner(),
 		Checker: vuln.NewChecker(vuln.NewOSVClient()),
@@ -80,10 +83,10 @@ func TestE2E_ScanFixRescan(t *testing.T) {
 		want[lock+"|lodash"] = false
 		want[lock+"|minimist"] = false
 	}
-	// Python lock projects need poetry / uv on PATH; without them only the
-	// analysis is checked and fixes for that project are skipped.
+	// Python lock projects need poetry / uv / pipenv on PATH; without them
+	// only the analysis is checked and fixes for that project are skipped.
 	skipFix := map[string]bool{}
-	for lock, tool := range map[string]string{"ml-poetry/poetry.lock": "poetry", "ml-uv/uv.lock": "uv"} {
+	for lock, tool := range map[string]string{"ml-poetry/poetry.lock": "poetry", "ml-uv/uv.lock": "uv", "ml-pipenv/Pipfile.lock": "pipenv"} {
 		want[lock+"|requests"] = false
 		want[lock+"|urllib3"] = false
 		if _, err := exec.LookPath(tool); err != nil {
