@@ -64,15 +64,9 @@ func fixPyLock(ws *Workspace, g []Request, tool pyTool) []Result {
 		return failAll(g, "pyproject.toml 파싱 실패: "+err.Error())
 	}
 
-	order := make([]int, len(g))
-	for i := range order {
-		order[i] = i
-	}
-	sort.SliceStable(order, func(a, b int) bool { return g[order[a]].Direct && !g[order[b]].Direct })
-
 	results := make([]Result, len(g))
 	var ran []int
-	for _, i := range order {
+	for _, i := range directFirst(g) {
 		r := g[i]
 		results[i].Request = r
 		args, how, err := pyCommand(tool, decls, r)
@@ -102,7 +96,27 @@ func fixPyLock(ws *Workspace, g []Request, tool pyTool) []Result {
 		return results
 	}
 
-	lock, verr := tool.parser.Parse(lockPath, g[0].Manifest)
+	verifyPyLock(tool.parser, lockPath, g, ran, results, tool.transitiveNote)
+	ws.RecordChanged(bk)
+	return results
+}
+
+// directFirst returns request indexes with direct dependencies first, so
+// that their new versions can unlock transitive upgrades.
+func directFirst(g []Request) []int {
+	order := make([]int, len(g))
+	for i := range order {
+		order[i] = i
+	}
+	sort.SliceStable(order, func(a, b int) bool { return g[order[a]].Direct && !g[order[b]].Direct })
+	return order
+}
+
+// verifyPyLock re-reads the lock with parser and marks each request in ran
+// successful unless a vulnerable version is still locked. transitiveNote
+// explains a transitive package that could not be moved.
+func verifyPyLock(parser sbom.Parser, lockPath string, g []Request, ran []int, results []Result, transitiveNote string) {
+	lock, verr := parser.Parse(lockPath, g[0].Manifest)
 	for _, i := range ran {
 		if verr != nil {
 			results[i].Message += " (lock 파일 검증 실패: " + verr.Error() + ")"
@@ -111,14 +125,12 @@ func fixPyLock(ws *Workspace, g []Request, tool pyTool) []Result {
 		if stale := staleVersions(lock.Components, g[i]); len(stale) > 0 {
 			results[i].Message += fmt.Sprintf(" — 하지만 lock 파일에 여전히 %s %s 이(가) 남아 있습니다", g[i].Name, strings.Join(stale, ", "))
 			if !g[i].Direct {
-				results[i].Message += ". " + tool.transitiveNote
+				results[i].Message += ". " + transitiveNote
 			}
 			continue
 		}
 		results[i].Success = true
 	}
-	ws.RecordChanged(bk)
-	return results
 }
 
 // pyCommand builds the tool arguments for one request and a description.
