@@ -10,7 +10,7 @@ import (
 )
 
 // PythonLockFiles are the Python lock files with full dependency trees.
-var PythonLockFiles = []string{"poetry.lock", "uv.lock"}
+var PythonLockFiles = []string{"poetry.lock", "uv.lock", "Pipfile.lock"}
 
 // readPyproject parses the pyproject.toml next to a lock file (nil if
 // missing or invalid).

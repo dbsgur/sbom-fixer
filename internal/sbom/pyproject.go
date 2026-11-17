@@ -9,7 +9,8 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// PySectionKind tells where in pyproject.toml a dependency is declared.
+// PySectionKind tells where in pyproject.toml (or a Pipfile) a dependency
+// is declared.
 type PySectionKind string
 
 const (
@@ -20,6 +21,7 @@ const (
 	PyPoetryGroup     PySectionKind = "poetry-group"      // [tool.poetry.group.<name>.dependencies]
 	PyPoetryLegacyDev PySectionKind = "poetry-legacy-dev" // [tool.poetry.dev-dependencies] (Poetry < 1.2)
 	PyUvLegacyDev     PySectionKind = "uv-legacy-dev"     // [tool.uv] dev-dependencies
+	PyPipfile         PySectionKind = "pipfile"           // Pipfile [packages], [dev-packages], [<category>]
 )
 
 // PyRequirement is one dependency declaration in pyproject.toml.
@@ -33,7 +35,7 @@ type PyRequirement struct {
 	Extras string // "[socks]"
 	Marker string // "; python_version > '3'"
 	URL    bool   // "pkg @ https://..." direct reference
-	Table  bool   // Poetry table form ({version = ..., markers = ...})
+	Table  bool   // table form ({version = ..., markers = ...}) in Poetry or a Pipfile
 }
 
 // Production reports whether the requirement is a runtime dependency.
@@ -43,6 +45,8 @@ func (r PyRequirement) Production() bool {
 		return true
 	case PyPoetryGroup:
 		return r.Section == "main"
+	case PyPipfile:
+		return r.Section == "packages"
 	}
 	return false
 }

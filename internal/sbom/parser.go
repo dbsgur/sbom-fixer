@@ -31,5 +31,7 @@ func DefaultParsers() []Parser {
 		PoetryLockParser{},
 		UvLockParser{},
 		PyprojectCheck{},
+		PipfileLockParser{},
+		PipfileCheck{},
 	}
 }
