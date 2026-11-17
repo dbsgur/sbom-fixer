@@ -42,46 +42,76 @@ type osvQuery struct {
 		Name      string `json:"name"`
 		Ecosystem string `json:"ecosystem"`
 	} `json:"package"`
-	Version string `json:"version"`
+	Version   string `json:"version"`
+	PageToken string `json:"page_token,omitempty"`
+}
+
+type osvVulnRef struct {
+	ID string `json:"id"`
+}
+
+type osvBatchResult struct {
+	Vulns []osvVulnRef `json:"vulns"`
+	// NextPageToken is set when OSV truncated this query's results; the
+	// same query must be sent again with page_token to get the rest.
+	NextPageToken string `json:"next_page_token"`
 }
 
 type osvBatchResponse struct {
-	Results []struct {
-		Vulns []struct {
-			ID string `json:"id"`
-		} `json:"vulns"`
-	} `json:"results"`
+	Results []osvBatchResult `json:"results"`
 }
 
-// QueryIDs implements AdvisoryDB using /v1/querybatch.
+// maxQueryPages bounds how often a single query is re-sent for more pages,
+// so a misbehaving server cannot keep the scan looping forever.
+const maxQueryPages = 50
+
+// QueryIDs implements AdvisoryDB using /v1/querybatch. Queries whose
+// results were paginated are re-sent with their page token until every page
+// has been read, so packages with many advisories are not cut short.
 func (cl *OSVClient) QueryIDs(ctx context.Context, comps []sbom.Component) ([][]string, error) {
 	ids := make([][]string, len(comps))
 	size := cl.BatchSize
 	if size <= 0 {
 		size = 500
 	}
-	for start := 0; start < len(comps); start += size {
-		end := min(start+size, len(comps))
-		queries := make([]osvQuery, 0, end-start)
-		for _, c := range comps[start:end] {
-			var q osvQuery
-			q.Package.Name = c.Name
-			q.Package.Ecosystem = c.Ecosystem
-			q.Version = queryVersion(c)
-			queries = append(queries, q)
+	queries := make([]osvQuery, len(comps))
+	pending := make([]int, len(comps))
+	for i, c := range comps {
+		queries[i].Package.Name = c.Name
+		queries[i].Package.Ecosystem = c.Ecosystem
+		queries[i].Version = queryVersion(c)
+		pending[i] = i
+	}
+	for page := 0; len(pending) > 0; page++ {
+		if page >= maxQueryPages {
+			return nil, fmt.Errorf("OSV 결과 페이지가 너무 많습니다 (%d페이지 초과)", maxQueryPages)
 		}
-		var resp osvBatchResponse
-		if err := cl.post(ctx, "/v1/querybatch", map[string]any{"queries": queries}, &resp); err != nil {
-			return nil, err
-		}
-		for i, r := range resp.Results {
-			if start+i >= len(ids) {
-				break
+		var next []int
+		for start := 0; start < len(pending); start += size {
+			chunk := pending[start:min(start+size, len(pending))]
+			batch := make([]osvQuery, len(chunk))
+			for k, i := range chunk {
+				batch[k] = queries[i]
 			}
-			for _, v := range r.Vulns {
-				ids[start+i] = append(ids[start+i], v.ID)
+			var resp osvBatchResponse
+			if err := cl.post(ctx, "/v1/querybatch", map[string]any{"queries": batch}, &resp); err != nil {
+				return nil, err
+			}
+			if len(resp.Results) != len(chunk) {
+				return nil, fmt.Errorf("OSV 응답 개수가 요청과 다릅니다 (요청 %d, 응답 %d)", len(chunk), len(resp.Results))
+			}
+			for k, r := range resp.Results {
+				i := chunk[k]
+				for _, v := range r.Vulns {
+					ids[i] = append(ids[i], v.ID)
+				}
+				if r.NextPageToken != "" {
+					queries[i].PageToken = r.NextPageToken
+					next = append(next, i)
+				}
 			}
 		}
+		pending = next
 	}
 	return ids, nil
 }
