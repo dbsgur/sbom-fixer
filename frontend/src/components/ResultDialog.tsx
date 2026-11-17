@@ -15,6 +15,14 @@ export default function ResultDialog({report, onClose}: {report: FixReport; onCl
           {remaining !== undefined && <span className="muted">재분석 결과 남은 취약 패키지 {remaining}개</span>}
         </div>
 
+        {report.rescanError && (
+          <div className="banner warn">
+            수정 후 재분석에 실패했습니다: {report.rescanError}
+            <br />
+            <span className="small muted">화면의 분석 결과는 수정 전 상태입니다. '다시 분석'으로 갱신하세요.</span>
+          </div>
+        )}
+
         <ul className="results">
           {results.map((r, i) => (
             <li key={i} className={r.success ? 'ok-item' : 'fail-item'}>
