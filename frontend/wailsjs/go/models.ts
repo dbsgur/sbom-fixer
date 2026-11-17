@@ -216,6 +216,7 @@ export namespace service {
 	export class FixReport {
 	    fix?: fixer.Report;
 	    rescan?: ScanReport;
+	    rescanError?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new FixReport(source);
@@ -225,6 +226,7 @@ export namespace service {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.fix = this.convertValues(source["fix"], fixer.Report);
 	        this.rescan = this.convertValues(source["rescan"], ScanReport);
+	        this.rescanError = source["rescanError"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

@@ -71,6 +71,8 @@ export interface CommandLog {
 export interface FixReport {
   fix: {results: FixResult[]; commands: CommandLog[] | null; changedFiles: string[] | null}
   rescan: ScanReport | null
+  /** Set when the post-fix rescan failed (rescan is then null). */
+  rescanError?: string
 }
 
 export interface ExportFormat {
