@@ -63,6 +63,76 @@ func TestOSVClient_QueryIDs_BatchesAndStripsGoPrefix(t *testing.T) {
 	}
 }
 
+func TestOSVClient_QueryIDs_FollowsPageTokens(t *testing.T) {
+	var batches int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&batches, 1)
+		var body struct {
+			Queries []osvQuery `json:"queries"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		var resp osvBatchResponse
+		for _, q := range body.Queries {
+			var res osvBatchResult
+			switch {
+			case q.Package.Name == "many" && q.PageToken == "":
+				res = osvBatchResult{Vulns: []osvVulnRef{{ID: "A"}}, NextPageToken: "p2"}
+			case q.Package.Name == "many" && q.PageToken == "p2":
+				res = osvBatchResult{Vulns: []osvVulnRef{{ID: "B"}}, NextPageToken: "p3"}
+			case q.Package.Name == "many" && q.PageToken == "p3":
+				res = osvBatchResult{Vulns: []osvVulnRef{{ID: "C"}}}
+			case q.Package.Name == "few" && q.PageToken == "":
+				res = osvBatchResult{Vulns: []osvVulnRef{{ID: "X"}}}
+			default:
+				t.Errorf("unexpected query %+v", q)
+			}
+			resp.Results = append(resp.Results, res)
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+
+	comps := []sbom.Component{
+		{Name: "few", Version: "1", Ecosystem: "npm"},
+		{Name: "many", Version: "1", Ecosystem: "npm"},
+	}
+	ids, err := newTestClient(srv).QueryIDs(context.Background(), comps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(ids[0], ","); got != "X" {
+		t.Errorf("few: %s", got)
+	}
+	if got := strings.Join(ids[1], ","); got != "A,B,C" {
+		t.Errorf("many should collect every page, got %s", got)
+	}
+	if batches != 3 {
+		t.Errorf("only paginated queries should be re-sent: batches=%d", batches)
+	}
+}
+
+func TestOSVClient_QueryIDs_StopsEndlessPagination(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"results":[{"vulns":[{"id":"A"}],"next_page_token":"again"}]}`))
+	}))
+	defer srv.Close()
+	_, err := newTestClient(srv).QueryIDs(context.Background(), []sbom.Component{{Name: "a", Version: "1", Ecosystem: "npm"}})
+	if err == nil {
+		t.Fatal("expected error for endless pagination")
+	}
+}
+
+func TestOSVClient_QueryIDs_RejectsResultCountMismatch(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"results":[{"vulns":[]}]}`))
+	}))
+	defer srv.Close()
+	comps := []sbom.Component{{Name: "a", Version: "1", Ecosystem: "npm"}, {Name: "b", Version: "1", Ecosystem: "npm"}}
+	if _, err := newTestClient(srv).QueryIDs(context.Background(), comps); err == nil {
+		t.Fatal("a short response must not silently drop components")
+	}
+}
+
 func TestOSVClient_Advisories_CachesAndRetries(t *testing.T) {
 	var calls int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
